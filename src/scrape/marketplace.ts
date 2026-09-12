@@ -13,7 +13,6 @@ function citySlug(location: string | undefined): string {
       .trim()
       .toLowerCase()
       .normalize("NFD")
-      // eslint-disable-next-line no-control-regex
       .replace(/[̀-ͯ]/g, "")
       .replace(/[^a-z0-9]+/g, "") || "nearby"
   );
@@ -144,7 +143,9 @@ export async function scrapeSearch(
     for (let i = 0; i < PACE.scrollRounds && fromGraphql.size < cap; i++) {
       await pause(PACE.scrollPauseMin, PACE.scrollPauseSpan);
       await page.mouse.wheel(0, 3000 + Math.random() * 2000);
-      log.debug(`scroll ${i + 1}/${PACE.scrollRounds} — ${fromGraphql.size} listing(s)`);
+      log.debug(
+        `scroll ${i + 1}/${PACE.scrollRounds} — ${fromGraphql.size} listing(s)`,
+      );
     }
     await pause(PACE.settleMin, PACE.settleSpan);
   } finally {
@@ -183,13 +184,12 @@ async function domFallback(page: Page): Promise<RawListing[]> {
   for (const a of anchors) {
     const id = idFromHref(a.href);
     if (!id || out.has(id)) continue;
-    const priceMatch = a.text.match(
-      /(?:[€$£]\s?|\bEUR\s?|\bUSD\s?)([\d.,]+)/i,
-    );
+    const priceMatch = a.text.match(/(?:[€$£]\s?|\bEUR\s?|\bUSD\s?)([\d.,]+)/i);
     out.set(id, {
       fbId: id,
       url: `https://www.facebook.com/marketplace/item/${id}/`,
-      title: a.text.replace(/(?:[€$£]\s?|\bEUR\s?|\bUSD\s?)[\d.,]+/i, "").trim() || null,
+      title:
+        a.text.replace(/(?:[€$£]\s?|\bEUR\s?|\bUSD\s?)[\d.,]+/i, "").trim() || null,
       price: priceMatch ? Number(priceMatch[1]!.replace(/[.,]/g, "")) : null,
       currency: null,
       location: null,
@@ -215,10 +215,7 @@ export interface DetailResult {
 }
 
 /** Open a listing's detail page: description text, availability, embedded links. */
-export async function scrapeDetail(
-  page: Page,
-  fbId: string,
-): Promise<DetailResult> {
+export async function scrapeDetail(page: Page, fbId: string): Promise<DetailResult> {
   const url = `https://www.facebook.com/marketplace/item/${fbId}/`;
   try {
     await page.goto(url, { waitUntil: "domcontentloaded" });
@@ -253,12 +250,15 @@ export async function scrapeDetail(
     }
     if (desc.length < 40) {
       // Fallback: cleaned page text.
-      desc = fullText.replace(/\s+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+      desc = fullText
+        .replace(/\s+\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
     }
 
-    const links = [
-      ...new Set(desc.match(/https?:\/\/[^\s)"']+/gi) ?? []),
-    ].filter((u) => !/facebook\.com|fbcdn\.net|fb\.me/i.test(u));
+    const links = [...new Set(desc.match(/https?:\/\/[^\s)"']+/gi) ?? [])].filter(
+      (u) => !/facebook\.com|fbcdn\.net|fb\.me/i.test(u),
+    );
     return {
       text: desc ? desc.slice(0, 6000) : null,
       unavailable: GONE_RE.test(fullText),

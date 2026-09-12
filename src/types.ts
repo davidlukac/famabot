@@ -11,9 +11,7 @@ export const CommuteSchema = z.object({
     .string()
     .regex(/^\d{2}:\d{2}$/)
     .optional(),
-  dayOfWeek: z
-    .enum(["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
-    .optional(),
+  dayOfWeek: z.enum(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]).optional(),
   /** Reject listings whose drive time exceeds this many minutes. */
   maxMinutes: z.number().positive().optional(),
 });
@@ -46,9 +44,7 @@ export const CriteriaSchema = z.object({
 export type Criteria = z.infer<typeof CriteriaSchema>;
 
 export const SearchSchema = z.object({
-  key: z
-    .string()
-    .regex(/^[a-z0-9-]+$/, "key must be kebab-case (a-z, 0-9, -)"),
+  key: z.string().regex(/^[a-z0-9-]+$/, "key must be kebab-case (a-z, 0-9, -)"),
   query: z.string().default(""),
   // Facebook Marketplace category slug. Common ones:
   //   propertyrentals   – rentals (enables price + bedroom filters)

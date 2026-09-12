@@ -21,16 +21,8 @@ import { computeCommute, routingEnabled } from "../enrich/commute.js";
 import { log } from "../log.js";
 import { PACE, pause, shuffled } from "../pace.js";
 import { ensureLoggedIn } from "../scrape/browser.js";
-import {
-  buildSearchUrl,
-  scrapeDetail,
-  scrapeSearch,
-} from "../scrape/marketplace.js";
-import {
-  EVAL_MODEL,
-  evaluateListing,
-  toListingInput,
-} from "../evaluate/evaluator.js";
+import { buildSearchUrl, scrapeDetail, scrapeSearch } from "../scrape/marketplace.js";
+import { EVAL_MODEL, evaluateListing, toListingInput } from "../evaluate/evaluator.js";
 import { renderCandidatesTable } from "../notify/cli.js";
 import { candidateMsg, notifyCandidate, notifyEnabled } from "../notify/push.js";
 
@@ -162,7 +154,9 @@ export async function runPoll(
   for (let s = 0; s < enabled.length; s++) {
     const search = enabled[s]!;
     if (s > 0) {
-      log.debug(`waiting ${secs(PACE.searchGapMin, PACE.searchGapSpan)} before next search`);
+      log.debug(
+        `waiting ${secs(PACE.searchGapMin, PACE.searchGapSpan)} before next search`,
+      );
       await pause(PACE.searchGapMin, PACE.searchGapSpan);
     }
     const url = buildSearchUrl(search);
@@ -214,7 +208,9 @@ export async function runPoll(
           setAvailability(db, raw.fbId, "unavailable");
           result.inserted += 1;
           result.gone += 1;
-          log.info(`[${search.key}] ${raw.fbId} already gone — indexed, not evaluating`);
+          log.info(
+            `[${search.key}] ${raw.fbId} already gone — indexed, not evaluating`,
+          );
           continue;
         }
       }

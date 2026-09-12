@@ -86,30 +86,22 @@ async function googleGeocode(q: string, key: string): Promise<LatLng | null> {
   return j.results?.[0]?.geometry.location ?? null;
 }
 
-async function googleRoute(
-  from: LatLng,
-  to: LatLng,
-  key: string,
-  when: Date,
-) {
-  const r = await fetch(
-    "https://routes.googleapis.com/directions/v2:computeRoutes",
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "X-Goog-Api-Key": key,
-        "X-Goog-FieldMask": "routes.duration,routes.distanceMeters",
-      },
-      body: JSON.stringify({
-        origin: { location: { latLng: { latitude: from.lat, longitude: from.lng } } },
-        destination: { location: { latLng: { latitude: to.lat, longitude: to.lng } } },
-        travelMode: "DRIVE",
-        routingPreference: "TRAFFIC_AWARE",
-        departureTime: when.toISOString(),
-      }),
+async function googleRoute(from: LatLng, to: LatLng, key: string, when: Date) {
+  const r = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "X-Goog-Api-Key": key,
+      "X-Goog-FieldMask": "routes.duration,routes.distanceMeters",
     },
-  );
+    body: JSON.stringify({
+      origin: { location: { latLng: { latitude: from.lat, longitude: from.lng } } },
+      destination: { location: { latLng: { latitude: to.lat, longitude: to.lng } } },
+      travelMode: "DRIVE",
+      routingPreference: "TRAFFIC_AWARE",
+      departureTime: when.toISOString(),
+    }),
+  });
   if (!r.ok) throw new Error(`Google route HTTP ${r.status}`);
   const j = (await r.json()) as {
     routes?: { duration: string; distanceMeters: number }[];
@@ -164,7 +156,8 @@ async function geocode(q: string): Promise<LatLng | null> {
 
 function need(name: string): string {
   const v = process.env[name];
-  if (!v) throw new Error(`${name} not set (required for FAMABOT_ROUTING=${provider()})`);
+  if (!v)
+    throw new Error(`${name} not set (required for FAMABOT_ROUTING=${provider()})`);
   return v;
 }
 

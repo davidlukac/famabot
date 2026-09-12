@@ -51,9 +51,7 @@ export function sumUsage(parts: (EvalUsage | null)[]): EvalUsage | null {
     tokensIn: real.reduce((n, p) => n + p.tokensIn, 0),
     tokensOut: real.reduce((n, p) => n + p.tokensOut, 0),
     tokensCached: real.reduce((n, p) => n + p.tokensCached, 0),
-    costUsd: anyPriced
-      ? real.reduce((n, p) => n + (p.costUsd ?? 0), 0)
-      : null,
+    costUsd: anyPriced ? real.reduce((n, p) => n + (p.costUsd ?? 0), 0) : null,
   };
 }
 
@@ -61,7 +59,7 @@ export function sumUsage(parts: (EvalUsage | null)[]): EvalUsage | null {
  * USD cost from tiered per-1M-token pricing, or null when no price is
  * configured (all three zero) — shared by every API backend below.
  */
-function tieredCost(
+export function tieredCost(
   tokensIn: number,
   tokensCached: number,
   tokensOut: number,
@@ -94,10 +92,7 @@ const NO_TOOLS =
 class ClaudeCliProvider implements EvalProvider {
   constructor(readonly model: string) {}
 
-  async complete(
-    prompt: string,
-    opts: CompleteOptions = {},
-  ): Promise<CompleteResult> {
+  async complete(prompt: string, opts: CompleteOptions = {}): Promise<CompleteResult> {
     const args = [
       "-p",
       "--output-format",
@@ -218,10 +213,7 @@ class ClaudeApiProvider implements EvalProvider {
     this.o = options;
   }
 
-  async complete(
-    prompt: string,
-    opts: CompleteOptions = {},
-  ): Promise<CompleteResult> {
+  async complete(prompt: string, opts: CompleteOptions = {}): Promise<CompleteResult> {
     if (!this.o.apiKey) {
       throw new EvalProviderError(
         "FAMABOT_CLAUDE_API_KEY is not set (FAMABOT_EVALUATOR=claude-api).",
@@ -371,10 +363,7 @@ class ZaiProvider implements EvalProvider {
     this.o = options;
   }
 
-  async complete(
-    prompt: string,
-    opts: CompleteOptions = {},
-  ): Promise<CompleteResult> {
+  async complete(prompt: string, opts: CompleteOptions = {}): Promise<CompleteResult> {
     if (!this.o.apiKey) {
       throw new EvalProviderError(
         "FAMABOT_ZAI_API_KEY is not set (FAMABOT_EVALUATOR=zai).",
@@ -409,9 +398,7 @@ class ZaiProvider implements EvalProvider {
         signal: AbortSignal.timeout(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS),
       });
     } catch (err) {
-      throw new EvalProviderError(
-        `z.ai request failed: ${(err as Error).message}`,
-      );
+      throw new EvalProviderError(`z.ai request failed: ${(err as Error).message}`);
     }
 
     const bodyText = await res.text();
@@ -550,10 +537,7 @@ function findCodexError(stdout: string): string | undefined {
 class CodexCliProvider implements EvalProvider {
   constructor(readonly model: string) {}
 
-  async complete(
-    prompt: string,
-    opts: CompleteOptions = {},
-  ): Promise<CompleteResult> {
+  async complete(prompt: string, opts: CompleteOptions = {}): Promise<CompleteResult> {
     const fullPrompt = opts.systemPrompt
       ? `${opts.systemPrompt}\n\n---\n\n${prompt}`
       : prompt;
@@ -691,10 +675,7 @@ class CodexApiProvider implements EvalProvider {
     this.o = options;
   }
 
-  async complete(
-    prompt: string,
-    opts: CompleteOptions = {},
-  ): Promise<CompleteResult> {
+  async complete(prompt: string, opts: CompleteOptions = {}): Promise<CompleteResult> {
     if (!this.o.apiKey) {
       throw new EvalProviderError(
         "FAMABOT_CODEX_API_KEY is not set (FAMABOT_EVALUATOR=codex-api).",
@@ -725,9 +706,7 @@ class CodexApiProvider implements EvalProvider {
         signal: AbortSignal.timeout(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS),
       });
     } catch (err) {
-      throw new EvalProviderError(
-        `OpenAI request failed: ${(err as Error).message}`,
-      );
+      throw new EvalProviderError(`OpenAI request failed: ${(err as Error).message}`);
     }
 
     const bodyText = await res.text();
@@ -807,9 +786,7 @@ function envPrice(raw: string | undefined, fallback: number): number {
 
 const ZAI_REASONING_EFFORTS = new Set(["low", "high", "max"]);
 
-export function createEvalProvider(
-  env: NodeJS.ProcessEnv = process.env,
-): EvalProvider {
+export function createEvalProvider(env: NodeJS.ProcessEnv = process.env): EvalProvider {
   const kind = (env.FAMABOT_EVALUATOR ?? "claude-cli").trim().toLowerCase();
   switch (kind) {
     case "claude-cli":
@@ -893,8 +870,7 @@ export function createEvalProvider(
       return new ZaiProvider(env.FAMABOT_ZAI_MODEL?.trim() || ZAI_DEFAULT_MODEL, {
         apiKey: env.FAMABOT_ZAI_API_KEY?.trim() || undefined,
         baseUrl:
-          env.FAMABOT_ZAI_BASE_URL?.trim().replace(/\/+$/, "") ||
-          ZAI_DEFAULT_BASE_URL,
+          env.FAMABOT_ZAI_BASE_URL?.trim().replace(/\/+$/, "") || ZAI_DEFAULT_BASE_URL,
         maxTokens: envNum(env.FAMABOT_ZAI_MAX_TOKENS, ZAI_DEFAULT_MAX_TOKENS),
         reasoningEffort,
         priceInPerM: envPrice(env.FAMABOT_ZAI_PRICE_IN, ZAI_DEFAULT_PRICE_IN),

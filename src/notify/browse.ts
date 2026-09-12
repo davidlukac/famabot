@@ -19,13 +19,7 @@ export interface BrowseFilters {
 }
 
 export type SortField =
-  | "fresh"
-  | "score"
-  | "price"
-  | "beds"
-  | "seen"
-  | "title"
-  | "phase";
+  "fresh" | "score" | "price" | "beds" | "seen" | "title" | "phase";
 
 export interface BrowseItem {
   fbId: string;
@@ -150,13 +144,11 @@ export function selectItems(
 ): BrowseItem[] {
   let items = rows.map(toItem);
 
-  if (!f.includeUnavailable)
-    items = items.filter((i) => i.availability === "active");
+  if (!f.includeUnavailable) items = items.filter((i) => i.availability === "active");
   if (f.phases?.length) items = items.filter((i) => f.phases!.includes(i.phase));
   if (f.search) items = items.filter((i) => i.search === f.search);
   if (f.verdict) items = items.filter((i) => i.verdict === f.verdict);
-  if (f.minScore != null)
-    items = items.filter((i) => (i.score ?? -1) >= f.minScore!);
+  if (f.minScore != null) items = items.filter((i) => (i.score ?? -1) >= f.minScore!);
   if (f.minPrice != null)
     items = items.filter((i) => i.price != null && i.price >= f.minPrice!);
   if (f.maxPrice != null)
@@ -164,11 +156,8 @@ export function selectItems(
   if (f.minBeds != null)
     items = items.filter((i) => i.beds != null && i.beds >= f.minBeds!);
   if (f.maxCommute != null)
-    items = items.filter(
-      (i) => i.driveMin != null && i.driveMin <= f.maxCommute!,
-    );
-  if (f.sinceDays != null)
-    items = items.filter((i) => i.freshDays <= f.sinceDays!);
+    items = items.filter((i) => i.driveMin != null && i.driveMin <= f.maxCommute!);
+  if (f.sinceDays != null) items = items.filter((i) => i.freshDays <= f.sinceDays!);
   if (f.flagged) items = items.filter((i) => i.redFlags.length > 0);
   if (f.has) {
     const q = f.has.toLowerCase();
@@ -216,7 +205,9 @@ function link(text: string, url: string): string {
 
 function pad(s: string, n: number): string {
   const visible = s
+    // eslint-disable-next-line no-control-regex -- stripping ANSI SGR codes
     .replace(/\x1b\[[0-9;]*m/g, "")
+    // eslint-disable-next-line no-control-regex -- stripping OSC 8 hyperlinks
     .replace(/\x1b\]8;;.*?\x1b\\/g, "");
   return visible.length >= n ? s : s + " ".repeat(n - visible.length);
 }
@@ -333,7 +324,8 @@ function dateCell(msVal: number, iso: string | null): string {
 }
 
 function scoreCell(s: number | null): string {
-  if (s == null) return `<td data-sort="-1" class="num"><span class="muted">·</span></td>`;
+  if (s == null)
+    return `<td data-sort="-1" class="num"><span class="muted">·</span></td>`;
   const cls = s >= 0.6 ? "sc-g" : s >= 0.35 ? "sc-o" : "sc-w";
   return `<td data-sort="${s}" class="num"><span class="sc ${cls}">${s.toFixed(2)}</span></td>`;
 }

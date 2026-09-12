@@ -18,11 +18,7 @@ import {
   setPhase,
   trackedForRecheck,
 } from "./db/listings.js";
-import {
-  candidateMsg,
-  notifyCandidate,
-  notifyEnabled,
-} from "./notify/push.js";
+import { candidateMsg, notifyCandidate, notifyEnabled } from "./notify/push.js";
 import { interactiveLogin, launchContext } from "./scrape/browser.js";
 import { runPoll } from "./pipeline/poll.js";
 import { serve } from "./serve.js";
@@ -36,11 +32,7 @@ import {
   type BrowseFilters,
   type SortField,
 } from "./notify/browse.js";
-import {
-  EVAL_MODEL,
-  evaluateListing,
-  toListingInput,
-} from "./evaluate/evaluator.js";
+import { EVAL_MODEL, evaluateListing, toListingInput } from "./evaluate/evaluator.js";
 import type { Phase } from "./types.js";
 import { initLogger, log, logFilePath } from "./log.js";
 
@@ -177,17 +169,18 @@ program
   .description(
     "Explore evaluated listings with filters + sorts; titles link to Facebook.",
   )
-  .option(
-    "-p, --phase <list>",
-    "comma-separated phases (e.g. candidate,contacted)",
-  )
+  .option("-p, --phase <list>", "comma-separated phases (e.g. candidate,contacted)")
   .option("-s, --search <key>", "only this search key")
   .option("--verdict <v>", "candidate | reject")
   .option("--min-score <n>", "minimum fit score (0-1)", parseFloat)
   .option("--min-price <n>", "minimum price", parseFloat)
   .option("--max-price <n>", "maximum price", parseFloat)
   .option("--min-beds <n>", "minimum bedrooms", parseInt)
-  .option("--max-commute <min>", "max drive minutes to the configured destination", parseFloat)
+  .option(
+    "--max-commute <min>",
+    "max drive minutes to the configured destination",
+    parseFloat,
+  )
   .option("--since <days>", "freshest signal within N days", parseFloat)
   .option("--has <text>", "substring in title / location / reasoning")
   .option("--flagged", "only listings with red flags")
@@ -241,15 +234,7 @@ program
         console.error("--verdict must be 'candidate' or 'reject'");
         process.exit(1);
       }
-      const sortFields = [
-        "fresh",
-        "score",
-        "price",
-        "beds",
-        "seen",
-        "title",
-        "phase",
-      ];
+      const sortFields = ["fresh", "score", "price", "beds", "seen", "title", "phase"];
       if (!sortFields.includes(opts.sort)) {
         console.error(`--sort must be one of: ${sortFields.join(", ")}`);
         process.exit(1);
@@ -304,7 +289,12 @@ program
     "Serve a live, auto-refreshing HTML report on localhost (sort + filter in the page).",
   )
   .option("-P, --port <n>", "port", (v) => parseInt(v, 10), 8787)
-  .option("--interval <seconds>", "browser refresh interval", (v) => parseInt(v, 10), 30)
+  .option(
+    "--interval <seconds>",
+    "browser refresh interval",
+    (v) => parseInt(v, 10),
+    30,
+  )
   .action((opts: { port: number; interval: number }) => {
     const cfg = loadConfig();
     const db = openDb(cfg.dbPath);
@@ -370,8 +360,7 @@ program
   .option("--changed", "also re-push tracked listings that changed since last notified")
   .option("--min-score <n>", "only push candidates at/above this fit score", parseFloat)
   .option("--dry-run", "list what would be sent without sending")
-  .action(
-    async (opts: { changed?: boolean; minScore?: number; dryRun?: boolean }) => {
+  .action(async (opts: { changed?: boolean; minScore?: number; dryRun?: boolean }) => {
     const cfg = loadConfig();
     const db = openDb(cfg.dbPath);
     initLogger({ file: cfg.logPath, verbose: true });
@@ -480,35 +469,29 @@ program
   .argument("<phase>")
   .option("-n, --note <text>", "note to attach to the transition")
   .option("-f, --force", "skip transition validation")
-  .action(
-    (
-      fbId: string,
-      phase: string,
-      opts: { note?: string; force?: boolean },
-    ) => {
-      const cfg = loadConfig();
-      const db = openDb(cfg.dbPath);
-      const row = getByFbId(db, fbId);
-      if (!row) {
-        console.error(`No listing ${fbId}`);
+  .action((fbId: string, phase: string, opts: { note?: string; force?: boolean }) => {
+    const cfg = loadConfig();
+    const db = openDb(cfg.dbPath);
+    const row = getByFbId(db, fbId);
+    if (!row) {
+      console.error(`No listing ${fbId}`);
+      process.exit(1);
+    }
+    if (!isPhase(phase)) {
+      console.error(`Unknown phase: ${phase}`);
+      process.exit(1);
+    }
+    if (!opts.force) {
+      try {
+        assertTransition(row.phase, phase);
+      } catch (err) {
+        console.error((err as Error).message);
         process.exit(1);
       }
-      if (!isPhase(phase)) {
-        console.error(`Unknown phase: ${phase}`);
-        process.exit(1);
-      }
-      if (!opts.force) {
-        try {
-          assertTransition(row.phase, phase);
-        } catch (err) {
-          console.error((err as Error).message);
-          process.exit(1);
-        }
-      }
-      setPhase(db, fbId, phase, opts.note ?? (opts.force ? "forced" : null));
-      console.log(`${fbId}: ${row.phase} -> ${phase}`);
-    },
-  );
+    }
+    setPhase(db, fbId, phase, opts.note ?? (opts.force ? "forced" : null));
+    console.log(`${fbId}: ${row.phase} -> ${phase}`);
+  });
 
 program
   .command("note")
@@ -547,7 +530,9 @@ program
     for (const row of rows) {
       const search = searches.find((s) => s.key === row.search_key);
       if (!search) {
-        console.warn(`[${row.fb_id}] search "${row.search_key}" not in searches.yaml — skipped`);
+        console.warn(
+          `[${row.fb_id}] search "${row.search_key}" not in searches.yaml — skipped`,
+        );
         continue;
       }
       const res = await evaluateListing(toListingInput(row), search);
@@ -557,8 +542,7 @@ program
       }
       const { evaluation: ev, usage } = res;
       const phase = setEvaluation(db, row.fb_id, ev, EVAL_MODEL, usage);
-      const cost =
-        usage?.costUsd != null ? ` ~$${usage.costUsd.toFixed(4)}` : "";
+      const cost = usage?.costUsd != null ? ` ~$${usage.costUsd.toFixed(4)}` : "";
       console.log(
         `[${row.fb_id}] ${ev.verdict} (fit ${ev.fit_score.toFixed(2)}) -> ${phase}${cost}`,
       );

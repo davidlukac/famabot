@@ -29,7 +29,8 @@ export function buildSystemPrompt(search: Search): string {
   if (criteria.minPrice != null || criteria.maxPrice != null) {
     const lo = criteria.minPrice != null ? `${criteria.minPrice}` : "any";
     const hi = criteria.maxPrice != null ? `${criteria.maxPrice}` : "any";
-    const priceLine = `Price must be within ${lo}–${hi} ${criteria.currency ?? ""}`.trim();
+    const priceLine =
+      `Price must be within ${lo}–${hi} ${criteria.currency ?? ""}`.trim();
     hard.push(
       criteria.propertyType
         ? `${priceLine}. If a listing bundles utilities/deposit into one number, judge on the base rent when discernible.`
@@ -83,7 +84,7 @@ export function buildSystemPrompt(search: Search): string {
     "You are given one Facebook Marketplace listing (structured fields plus any",
     "free-text description). Decide whether it is worth the user's time to pursue.",
     "",
-    "HARD CONSTRAINTS — if the listing clearly violates any of these, verdict = \"reject\":",
+    'HARD CONSTRAINTS — if the listing clearly violates any of these, verdict = "reject":',
     hard.length ? hard.map((h) => `  - ${h}`).join("\n") : "  (none)",
     "",
     "SOFT PREFERENCES — these do not gate the verdict; they raise or lower fit_score (0..1):",
@@ -94,7 +95,7 @@ export function buildSystemPrompt(search: Search): string {
     "    Record what's missing in `missing_info` and evaluate on what is known.",
     "  - Only reject when a hard constraint is clearly and explicitly violated.",
     "  - `fit_score`: 0 = poor match, 1 = excellent. A borderline-but-viable listing is",
-    "    still verdict = \"candidate\" with a low-ish score.",
+    '    still verdict = "candidate" with a low-ish score.',
     "  - Put concrete concerns (scam signals, agency fees, vague listing, bad location) in `red_flags`.",
     "  - You are given the listing's title, price, location, post date, the full",
     "    description text (which usually includes FB's attribute rows), and any",

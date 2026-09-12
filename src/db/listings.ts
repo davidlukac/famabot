@@ -2,25 +2,15 @@ import type { DB } from "./index.js";
 import { nowIso } from "./index.js";
 import type { Evaluation } from "../evaluate/evaluator.js";
 import type { EvalUsage } from "../evaluate/provider.js";
-import type {
-  ListingRow,
-  Phase,
-  PhaseHistoryRow,
-  RawListing,
-} from "../types.js";
+import type { ListingRow, Phase, PhaseHistoryRow, RawListing } from "../types.js";
 
 export function getByFbId(db: DB, fbId: string): ListingRow | undefined {
-  return db
-    .prepare("SELECT * FROM listings WHERE fb_id = ?")
-    .get(fbId) as ListingRow | undefined;
+  return db.prepare("SELECT * FROM listings WHERE fb_id = ?").get(fbId) as
+    ListingRow | undefined;
 }
 
 /** Insert a freshly scraped listing in phase `new`. Ignores if it already exists. */
-export function insertListing(
-  db: DB,
-  searchKey: string,
-  raw: RawListing,
-): boolean {
+export function insertListing(db: DB, searchKey: string, raw: RawListing): boolean {
   const ts = nowIso();
   const info = db
     .prepare(
@@ -70,16 +60,15 @@ export function setCommute(
   fbId: string,
   drive: { km: number; minutes: number },
 ): void {
-  db.prepare(
-    "UPDATE listings SET drive_km = ?, drive_min = ? WHERE fb_id = ?",
-  ).run(drive.km, drive.minutes, fbId);
+  db.prepare("UPDATE listings SET drive_km = ?, drive_min = ? WHERE fb_id = ?").run(
+    drive.km,
+    drive.minutes,
+    fbId,
+  );
 }
 
 export function markNotified(db: DB, fbId: string): void {
-  db.prepare("UPDATE listings SET notified_at = ? WHERE fb_id = ?").run(
-    nowIso(),
-    fbId,
-  );
+  db.prepare("UPDATE listings SET notified_at = ? WHERE fb_id = ?").run(nowIso(), fbId);
 }
 
 /**
@@ -103,7 +92,13 @@ function descSignature(s: string | null | undefined): string {
     s
       .toLowerCase()
       .split("\n")
-      .map((l) => l.trim().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim())
+      .map((l) =>
+        l
+          .trim()
+          .replace(/[^a-z0-9 ]+/g, " ")
+          .replace(/\s+/g, " ")
+          .trim(),
+      )
       .filter(
         (l) =>
           l.length >= 25 &&
@@ -162,9 +157,7 @@ export function applyRecheck(
     nextSig !== prevSig &&
     wordDelta(nextSig, prevSig) >= 6; // ignore tiny/among-noise differences
   const relisted =
-    next.postedAt != null &&
-    row.posted_at != null &&
-    next.postedAt !== row.posted_at;
+    next.postedAt != null && row.posted_at != null && next.postedAt !== row.posted_at;
   if (!priceChanged && !descChanged && !relisted) {
     db.prepare("UPDATE listings SET last_seen_at = ? WHERE fb_id = ?").run(ts, fbId);
     return null;
@@ -190,11 +183,7 @@ export function applyRecheck(
   return bits.join(", ");
 }
 
-const MANUAL_PHASES = new Set<Phase>([
-  "contacted",
-  "visit_scheduled",
-  "visited",
-]);
+const MANUAL_PHASES = new Set<Phase>(["contacted", "visit_scheduled", "visited"]);
 
 /**
  * Listings edited since they were last evaluated — worth another look. `accepted`

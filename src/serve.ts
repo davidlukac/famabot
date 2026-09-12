@@ -23,12 +23,7 @@ export function serve(db: DB, o: ServeOpts): void {
   // Always hand the browser everything (incl. gone listings); the page's filter
   // panel decides what to show, so toggles work without a server round-trip.
   const current = () =>
-    selectItems(
-      queryListings(db),
-      { includeUnavailable: true },
-      o.sort,
-      o.desc,
-    );
+    selectItems(queryListings(db), { includeUnavailable: true }, o.sort, o.desc);
 
   const server = createServer((req, res) => {
     const path = (req.url ?? "/").split("?")[0];

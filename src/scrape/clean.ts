@@ -44,9 +44,7 @@ export function cleanListingText(raw: string | null | undefined): string | null 
   // 2. keep everything above it, minus UI-only lines and trailing "See more".
   const kept: string[] = [];
   for (let i = 0; i < cut; i++) {
-    const l = lines[i]!
-      .replace(/\s*See (more|less)\s*$/i, "")
-      .replace(/\s+$/, "");
+    const l = lines[i]!.replace(/\s*See (more|less)\s*$/i, "").replace(/\s+$/, "");
     const t = l.trim();
     if (!t) {
       if (kept.length && kept[kept.length - 1] !== "") kept.push("");

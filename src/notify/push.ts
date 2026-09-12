@@ -96,19 +96,16 @@ async function sendTelegram(m: CandidateMsg): Promise<void> {
     `\n${htmlEsc(m.reason)}\n\n` +
     `<a href="${listing}">${listing}</a>\n` +
     `<i>${htmlEsc(m.search)}</i>`;
-  const res = await fetch(
-    `https://api.telegram.org/bot${token}/sendMessage`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: "HTML",
-        link_preview_options: { url: listing },
-      }),
-    },
-  );
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      parse_mode: "HTML",
+      link_preview_options: { url: listing },
+    }),
+  });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`Telegram HTTP ${res.status} ${body.slice(0, 200)}`);
@@ -168,10 +165,7 @@ async function sendCommand(m: CandidateMsg): Promise<void> {
  * Needs FAMABOT_MESSENGER_THREAD (e.g. https://www.facebook.com/messages/t/<id>).
  * Best-effort and fragile — Messenger's DOM is unstable.
  */
-async function sendMessenger(
-  m: CandidateMsg,
-  ctx?: BrowserContext,
-): Promise<void> {
+async function sendMessenger(m: CandidateMsg, ctx?: BrowserContext): Promise<void> {
   const thread = process.env.FAMABOT_MESSENGER_THREAD;
   if (!thread) throw new Error("FAMABOT_MESSENGER_THREAD not set");
   if (!ctx) throw new Error("no browser context available");

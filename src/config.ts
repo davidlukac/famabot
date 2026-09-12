@@ -23,9 +23,7 @@ function truthy(v: string | undefined): boolean {
 export function loadConfig(): AppConfig {
   return {
     dbPath: resolve(process.env.FAMABOT_DB ?? "./.data/famabot.db"),
-    profileDir: resolve(
-      process.env.FAMABOT_PROFILE_DIR ?? "./.data/chromium-profile",
-    ),
+    profileDir: resolve(process.env.FAMABOT_PROFILE_DIR ?? "./.data/chromium-profile"),
     headless: (process.env.FAMABOT_HEADLESS ?? "true").toLowerCase() !== "false",
     searchesPath: resolve(process.env.FAMABOT_SEARCHES ?? "./searches.yaml"),
     logPath: resolve(process.env.FAMABOT_LOG ?? "./.data/famabot.log"),

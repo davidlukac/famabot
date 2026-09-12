@@ -1,7 +1,6 @@
 import type { RawListing } from "../types.js";
 
-const ITEM_URL = (id: string) =>
-  `https://www.facebook.com/marketplace/item/${id}/`;
+const ITEM_URL = (id: string) => `https://www.facebook.com/marketplace/item/${id}/`;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
@@ -91,8 +90,7 @@ function toRawListing(node: Record<string, unknown>): RawListing | null {
       location =
         (typeof rg.city_page === "object" &&
           rg.city_page &&
-          typeof (rg.city_page as Record<string, unknown>).display_name ===
-            "string" &&
+          typeof (rg.city_page as Record<string, unknown>).display_name === "string" &&
           ((rg.city_page as Record<string, unknown>).display_name as string)) ||
         (typeof rg.city === "string" ? rg.city : null);
     }
@@ -107,7 +105,7 @@ function toRawListing(node: Record<string, unknown>): RawListing | null {
     (isRecord(node.story) ? node.story.creation_time : undefined);
   const postedAt =
     typeof ct === "number" && ct > 1_000_000_000
-      ? new Date((ct < 1e12 ? ct * 1000 : ct)).toISOString()
+      ? new Date(ct < 1e12 ? ct * 1000 : ct).toISOString()
       : null;
 
   return {
