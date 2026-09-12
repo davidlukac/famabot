@@ -1,5 +1,6 @@
 # famabot
 
+![CI](https://github.com/davidlukac/famabot/actions/workflows/ci.yml/badge.svg)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Node >=22](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
@@ -129,8 +130,11 @@ that listing.
 (default), `score`, `price`, `beds`, `seen`, `title`, `phase`.
 
 During development, prefix with `npm run dev --` (e.g. `npm run dev -- list`). After
-`npm run build`, run `node dist/cli.js …` or link the `famabot` bin. `npm test` runs the unit
-tests (`node --test`).
+`npm run build`, run `node dist/cli.js …` or link the `famabot` bin.
+
+`npm test` runs the unit tests (`node --test`), `npm run typecheck` runs `tsc --noEmit`,
+`npm run lint` runs ESLint, and `npm run format` / `format:check` run Prettier. All four run
+in CI on every push/PR to `main` (`.github/workflows/ci.yml`, Node 22.x and 24.x).
 
 ## Candidate notifications
 
