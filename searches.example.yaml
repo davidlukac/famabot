@@ -1,0 +1,95 @@
+# Each entry is one saved search. The file is re-read on every `poll` / `watch`
+# pass, so edits take effect on the next poll — nothing to restart. All enabled
+# searches run every poll (shuffled order, paced with a gap between them) — add
+# as many as you like, across as many Marketplace categories as you like.
+#
+# A field is used in one of two ways:
+#   • It shapes the Facebook search URL  → query, category, criteria.location,
+#     criteria.radiusKm, criteria.minPrice, criteria.maxPrice,
+#     criteria.minBedrooms, criteria.maxBedrooms, criteria.minYear, criteria.maxYear
+#     (minBedrooms/maxBedrooms only apply to property* categories; minYear/maxYear
+#     only apply to `vehicles` — these are the ONLY things FB filters on)
+#   • It's part of the rubric the evaluator applies to each listing →
+#     everything else under `criteria` (mustHaves, dealBreakers, niceToHaves,
+#     notes, propertyType, currency, ...) plus the top-level `persona`
+#
+# `persona` (optional, per search) overrides the evaluator's voice just for that
+# search — e.g. a buyer's agent for rentals, a gearhead for a vehicle hunt. Falls
+# back to FAMABOT_PERSONA, then the built-in default, when omitted.
+
+- key: berlin-2br              # unique slug; shows up in `list` / `show`, used by `reevaluate`
+  enabled: true
+  query: "2 bedroom apartment" # free text typed into the Marketplace search box
+  category: propertyrentals    # propertyrentals | propertyforsale | search | vehicles | furniture | ...
+  fetchDetails: true           # open each new listing to grab its full description (slower, better evals)
+
+  criteria:
+    # ---- reaches Facebook ----
+    location: "Berlin, Germany" # used in the evaluator prompt; also a fallback URL slug
+    lat: 52.5200               # STRONGLY recommended: FB only reliably scopes a search
+    lng: 13.4050               # by coordinates. Without these it often ignores location.
+    radiusKm: 10
+    # maxAgeDays: 7            # optional: only listings posted in the last ~1 / 7 / 30 days
+    #                           (FB's "Date listed" filter). Results are always newest-first.
+    # commute:                # optional per-listing drive time; needs FAMABOT_ROUTING set
+    #   label: "Mission WCE station"
+    #   lat: 49.1310
+    #   lng: -122.3140
+    #   arriveBy: "08:00"     # target local time (traffic-aware providers only)
+    #   dayOfWeek: "tue"
+    #   maxMinutes: 30        # once routing is configured, a longer drive => reject
+    minPrice: 800
+    maxPrice: 1600
+    minBedrooms: 2
+    # maxBedrooms: 3
+
+    # ---- only the evaluator sees these ----
+    currency: EUR
+    propertyType: apartment     # apartment | house | room | studio | any
+    mustHaves:                  # hard constraint — a clear violation => reject
+      - "long-term lease (12 months or more)"
+      - "no agency / finder fee"
+    dealBreakers:               # hard constraint — if present => reject
+      - "sublet only"
+      - "shared flat / WG / room in a shared apartment"
+      - "short-term or holiday rental"
+    niceToHaves:                # soft preference — nudges the 0..1 fit score
+      - "balcony or outdoor space"
+      - "furnished"
+      - "dishwasher"
+    notes: >
+      Prefer quiet residential streets, walking distance to a U-Bahn or S-Bahn.
+      Ground floor is a downside. Pets (one cat) need to be allowed.
+
+# A second, unrelated search in the same file — e.g. hunting a used desk:
+# - key: used-standing-desk
+#   query: "standing desk"
+#   category: furniture
+#   fetchDetails: true
+#   criteria:
+#     location: "Berlin, Germany"
+#     radiusKm: 25
+#     maxPrice: 200
+#     mustHaves: ["electric / motorised height adjustment"]
+#     dealBreakers: ["manual crank only", "damaged motor"]
+#     niceToHaves: ["width 140cm or more", "memory presets"]
+#     notes: "Pickup only is fine. Avoid anything with a wobble complaint in the text."
+
+# A different category entirely — vehicles get their own persona + year filter:
+# - key: used-truck
+#   query: "Toyota Tacoma"
+#   category: vehicles
+#   fetchDetails: true
+#   persona: >
+#     You are the user's gearhead buddy — blunt about what's a real mechanical
+#     problem versus a cheap fix, allergic to salvage titles and frame rust.
+#   criteria:
+#     lat: 49.2194
+#     lng: -122.5984
+#     radiusKm: 70
+#     minYear: 2005             # FB-filtered — off-year listings are never scraped
+#     maxYear: 2015
+#     mustHaves: ["4WD / 4x4 drivetrain"]
+#     dealBreakers: ["frame rust", "salvage or rebuilt title", "major accident damage"]
+#     niceToHaves: ["lift kit", "skid plates", "manual transmission"]
+#     notes: "Minor mechanical issues are fine and expected on a truck this age."
