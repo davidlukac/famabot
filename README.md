@@ -1,54 +1,96 @@
 # famabot
 
-Watch Facebook Marketplace searches on an interval, run every **new** listing through a
-Claude agent that judges it against your criteria, and track the ones worth pursuing through a
-manual pipeline (`candidate → contacted → visit_scheduled → visited → accepted / declined`).
+![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+![Node >=22](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
 
-Built for a rental hunt, but any Marketplace search works — the criteria are free-form.
+**famabot** watches Facebook Marketplace for you. Point it at one or more saved searches —
+rentals, a specific used car, furniture, anything Marketplace sells — and it scrapes new
+listings on an interval, has an LLM judge each one against *your* criteria in *your* own words,
+and pushes the ones worth your time to Telegram or ntfy. Everything else it quietly files away,
+browsable later, so you never have to re-scan a feed by hand again.
+
+Built for a rental hunt, but genuinely general-purpose: each search gets its own Facebook
+category, its own criteria, and its own evaluator persona, all running side by side.
+
+```
+🏠 0.90 · CA$3,000 · 3 Beds 2 Baths - House
+📍 Mission, British Columbia
+
+Whole detached house, ~3 km from Mission City Station — well under the 30-minute
+commute limit. Dog/cat friendly, garage + driveway, dishwasher. Worth booking a
+Saturday viewing promptly, houses like this move fast.
+
+https://www.facebook.com/marketplace/item/.../
+```
+*(an actual notification, sent to Telegram by famabot mid-poll — see [Candidate notifications](#candidate-notifications))*
+
+## Contents
+
+- [Why](#why)
+- [How it works](#how-it-works)
+- [Quickstart](#quickstart)
+- [Commands](#commands)
+- [Candidate notifications](#candidate-notifications)
+- [Defining searches (searches.yaml)](#defining-searches-searchesyaml)
+- [The evaluator](#the-evaluator)
+- [Configuration](#configuration)
+- [Drive time to a fixed point](#drive-time-to-a-fixed-point)
+- [Freshness and poll frequency](#freshness-and-poll-frequency)
+- [Dedup and re-evaluation](#dedup-and-re-evaluation)
+- [Notes and limitations](#notes-and-limitations)
+
+## Why
+
+Marketplace is a firehose, and the good stuff gets buried in duplicate listings, dealer spam,
+and things that technically match your search terms but obviously aren't what you want (a
+sailboat is not a truck, no matter how loosely Facebook's search interprets "Toyota Tacoma").
+famabot doesn't just filter by price and keywords — it reads the full listing text the way you
+would, checks it against hard constraints you define in plain English, and tells you *why* it
+did or didn't make the cut.
 
 ## How it works
 
 ```
-searches.yaml ──▶ scrape (Playwright, logged-in Chromium)
-                     │  newest listings per search
+searches.yaml ──▶ scrape (Playwright, your logged-in Chromium session)
+                     │  newest listings per search, one search at a time
                      ▼
                   dedupe against SQLite  ──▶ new listings
                      │
                      ▼
-                  evaluate each (claude CLI / z.ai — see FAMABOT_EVALUATOR)
-                     │  verdict: candidate | reject  + fit score + reasoning
+                  evaluate each (local `claude` CLI, or z.ai/GLM — your choice)
+                     │  verdict: candidate | reject  +  fit score (0–1)  +  reasoning
                      ▼
-                  store + set phase  ──▶  candidate table printed
+                  store + set phase  ──▶  candidate?  push to Telegram/ntfy
 ```
 
+Evaluation is dispatched the moment a listing's data is ready, overlapped with the pacing delay
+before the *next* listing is scraped — so a strong match gets pushed to you within seconds of
+being found, not held until the whole poll finishes.
+
 Your manual phase changes are never overwritten by the evaluator — it only ever acts on
-listings still in `new`.
+listings still in `new`, or ones that changed since their last evaluation.
 
-## Setup
-
-By default the evaluator shells out to the local **`claude` CLI**, so it runs on your existing
-Claude subscription — no API key. Make sure `claude` is on your `PATH` and you're signed in.
-To use the **z.ai API** instead, set `FAMABOT_EVALUATOR=zai` and `FAMABOT_ZAI_API_KEY` in
-`.env` (model defaults to `glm-5.3-flash`, override with `FAMABOT_ZAI_MODEL`). Other z.ai
-knobs — `FAMABOT_ZAI_REASONING_EFFORT` (default `high`), `FAMABOT_ZAI_MAX_TOKENS`, and
-`FAMABOT_ZAI_PRICE_IN` / `_CACHED` / `_OUT` (default to z.ai's GLM-5.3-Flash list price) — are
-in `.env.example`. Each eval stores its token counts and an **approximate cost** (z.ai's API
-returns tokens, not dollars), shown in the `browse` / `serve` detail modal and the
-`reevaluate` output. Note GLM-5.3-Flash isn't fully deterministic; borderline fit scores move
-±~0.05 between runs.
+## Quickstart
 
 ```bash
 npm install
 npx playwright install chromium
 
 cp .env.example .env
-cp searches.example.yaml searches.yaml   # then edit for your search
+cp searches.example.yaml searches.yaml   # then edit for your own search(es)
 
 npm run dev -- login          # opens a browser; log in to Facebook once
+npm run dev -- watch          # or: npm run build && node dist/cli.js watch
 ```
 
-The login session is stored in `./.data/chromium-profile/` and reused headlessly. Re-run
-`login` if it expires or Facebook shows a checkpoint.
+By default the evaluator shells out to your local **`claude` CLI** (existing Claude
+subscription, no API key needed — just make sure `claude` is on `PATH` and signed in). To use
+the **z.ai API** (GLM models) instead, set `FAMABOT_EVALUATOR=zai` and `FAMABOT_ZAI_API_KEY` in
+`.env` — see [The evaluator](#the-evaluator) for the full set of knobs and what each one costs.
+
+The Facebook login session lives in `./.data/chromium-profile/` and is reused headlessly from
+then on. Re-run `login` if it expires or Facebook throws a checkpoint at it.
 
 ## Commands
 
@@ -56,14 +98,14 @@ The login session is stored in `./.data/chromium-profile/` and reused headlessly
 |---|---|
 | `famabot login` | Headed browser to log in to Facebook; session is saved. |
 | `famabot poll` | One scrape + evaluate + recheck pass over all enabled searches. |
-| `famabot watch [-i 90]` | `poll` on a loop, every ~90 min (± jitter). Ctrl-C stops after the current pass. |
+| `famabot watch [-i 90]` | `poll` on a loop, every ~90 min (± jitter). Re-reads `searches.yaml` every pass — enable/disable a search or tweak criteria without restarting. Ctrl-C stops after the current pass. |
 | `famabot serve [-P 8787] [--interval 30]` | Live auto-refreshing HTML report on `localhost`. |
 | `famabot browse [filters] [--sort fresh] [--html [path]] [--open] [--all]` | Explore listings in the terminal (clickable titles) or as an HTML file. |
 | `famabot list [-p <phase>] [-s <search>] [--json]` | Compact pipeline table. |
 | `famabot show <fbId>` | One listing in full: fields, availability, links, reasoning, history. |
 | `famabot move <fbId> <phase> [-n "note"] [-f]` | Advance a phase. Illegal transitions are rejected unless `-f`. |
 | `famabot note <fbId> "text"` | Append a timestamped note. |
-| `famabot reevaluate [-p new] [-s <search>]` | Re-run the agent on stored listings. |
+| `famabot reevaluate [-p new] [-s <search>]` | Re-run the evaluator on stored listings. |
 | `famabot recheck [-n 20]` | Re-open tracked listings to catch closed / edited ones (also runs inside every poll). |
 | `famabot open <fbId>` | Open the listing URL in your browser. |
 
@@ -71,26 +113,34 @@ The login session is stored in `./.data/chromium-profile/` and reused headlessly
 active one). Filter panel: **text search**, **min score**, **Status** (per-phase checkboxes +
 quick buttons *all / active pipeline / candidates* + *show gone*), **Date** (pick the field —
 listing created / listing updated / indexed — then a preset *any / 24h / 3d / week / month* or
-an explicit from–to range), and **Search** (one checkbox per saved search — matters once you
-add a second search alongside `mission-bc-house`). Columns: Score, Price, Bd, Drive, Phase,
-**Indexed** (`first_seen_at`), **Posted** (`posted_at` — the seller's listing date; falls back
-to Indexed for sorting), **Updated** (`last_changed_at`), Search, Location, Title (hover = the
-agent's reasoning), Flags (hover = the red-flag list), Why. The server hands the browser every
-active + gone listing; all filtering/sorting is client-side, so toggles are instant. Rows for
-gone listings show struck-through; `✎` = changed, `↗` = has an off-platform link.
+an explicit from–to range), and **Search** (one checkbox per saved search, once you have more
+than one). Columns: Score, Price, Bd, Drive, Phase, **Indexed** (`first_seen_at`), **Posted**
+(`posted_at` — the seller's listing date; falls back to Indexed for sorting), **Updated**
+(`last_changed_at`), Search, Location, Title (hover = the agent's reasoning), Flags (hover = the
+red-flag list), Why. The server hands the browser every active + gone listing; all
+filtering/sorting is client-side, so toggles are instant. Rows for gone listings show
+struck-through; `✎` = changed, `↗` = has an off-platform link. Click a row for the full detail
+modal — reasoning, extracted fields, red flags, and the evaluator's token/cost accounting for
+that listing.
 
 **`famabot browse`** (terminal / `--html`) filters: `--phase a,b` `--search <key>`
 `--verdict candidate|reject` `--min-score` `--min-price` `--max-price` `--min-beds`
 `--max-commute <min>` `--since <days>` `--has <text>` `--flagged` `--all`. Sort: `fresh`
 (default), `score`, `price`, `beds`, `seen`, `title`, `phase`.
 
-### Candidate notifications
+During development, prefix with `npm run dev --` (e.g. `npm run dev -- list`). After
+`npm run build`, run `node dist/cli.js …` or link the `famabot` bin. `npm test` runs the unit
+tests (`node --test`).
 
-Off by default. Set `FAMABOT_NOTIFY` to a comma-list of backends (see `.env.example`):
+## Candidate notifications
+
+Off by default. Set `FAMABOT_NOTIFY` to a comma-list of backends (see `.env.example`) — e.g.
+`telegram`, or `telegram,ntfy` to fire both:
+
 - **`telegram`** — sends via a Telegram bot. Create one with [@BotFather](https://t.me/BotFather)
   for `FAMABOT_TELEGRAM_BOT_TOKEN`, message it once, then read
   `api.telegram.org/bot<token>/getUpdates` for your `FAMABOT_TELEGRAM_CHAT_ID` (a negative id
-  for a group/channel — add the bot first). Rich formatting + listing-photo preview.
+  for a group/channel — add the bot first). Rich formatting + a listing-photo preview.
 - **`ntfy`** — POSTs to `FAMABOT_NTFY_URL` (install the [ntfy](https://ntfy.sh) app, subscribe
   to an unguessable topic). Zero-account, reliable.
 - **`command`** — runs `FAMABOT_NOTIFY_CMD` with `FAMABOT_TITLE`, `FAMABOT_PRICE`,
@@ -99,15 +149,14 @@ Off by default. Set `FAMABOT_NOTIFY` to a comma-list of backends (see `.env.exam
 - **`messenger`** — posts into `FAMABOT_MESSENGER_THREAD` (e.g. a self-note group) via the
   logged-in browser. No extra auth, but Messenger's DOM is unstable — treat as best-effort.
 
-Each candidate is notified once (`notified_at` guards re-sends).
+Each candidate is notified once (`notified_at` guards re-sends), dispatched as soon as its own
+evaluation completes — not batched until the whole poll finishes.
 
-During development, prefix with `npm run dev --` (e.g. `npm run dev -- list`). After
-`npm run build`, run `node dist/cli.js …` or link the `famabot` bin.
+## Defining searches (searches.yaml)
 
-## searches.yaml — defining what you're looking for
-
-One entry per saved search, at the repo root. The file is re-read on every `poll` / `watch`
-pass, so edits take effect on the next poll.
+One entry per saved search, at the repo root (gitignored — copy `searches.example.yaml` to
+start). `watch` re-reads it every poll, so edits — including enabling/disabling a search — take
+effect on the next pass with no restart.
 
 Every field does one of two jobs:
 
@@ -121,9 +170,10 @@ Every field does one of two jobs:
 | `criteria.radiusKm` | Search radius. |
 | `criteria.minPrice` / `maxPrice` | Price bounds. |
 | `criteria.minBedrooms` / `maxBedrooms` | Only applied on `property*` categories. |
+| `criteria.minYear` / `maxYear` | Only applied on the `vehicles` category. |
 
-**Feeds the `claude` evaluator** (everything else under `criteria` — not sent to FB, applied
-per listing):
+**Feeds the evaluator** (everything else under `criteria`, plus the top-level `persona` —
+applied per listing, not sent to Facebook):
 
 | Field | Effect |
 |---|---|
@@ -131,14 +181,62 @@ per listing):
 | `criteria.dealBreakers` | Hard constraint — if present ⇒ `reject`. |
 | `criteria.niceToHaves` | Soft — nudges the 0–1 `fit_score`. |
 | `criteria.notes` | Free-form guidance — soft. |
-| `criteria.propertyType`, `criteria.currency` | Context for the model. |
+| `criteria.propertyType`, `criteria.currency` | Extra context for the model. |
+| `persona` | Overrides the evaluator's voice for *this search only* — falls back to `FAMABOT_PERSONA`, then a generic default. |
 
 Other per-search keys: `key` (unique slug, shown in `list`/`show`, used by `reevaluate`),
 `enabled`, `fetchDetails` (open each new listing for its full description — slower, better
-evals). See `searches.example.yaml` for a filled-in rental plus a commented second search for
-a used desk.
+evals). See `searches.example.yaml` for a filled-in rental, a commented used-furniture search,
+and a vehicle search with its own gearhead persona and a year-range filter.
 
-## Configuration (env / `.env`)
+Multiple searches run every poll, one after another with a paced gap between them (not
+concurrently) — so adding a second or third search doesn't multiply how aggressively your
+account hits Facebook, it just covers more ground per poll.
+
+## The evaluator
+
+By default the evaluator shells out to the local **`claude` CLI** — your existing Claude
+subscription, no API key. To use the **z.ai API** (GLM models) instead, set
+`FAMABOT_EVALUATOR=zai` and `FAMABOT_ZAI_API_KEY` in `.env` (model defaults to
+`glm-5.3-flash`, override with `FAMABOT_ZAI_MODEL`). Both backends live behind the
+`EvalProvider` interface in `src/evaluate/provider.ts` — adding another one is a small,
+self-contained change.
+
+z.ai-specific knobs (see `.env.example` for the full list and current defaults):
+
+- **`FAMABOT_ZAI_REASONING_EFFORT`** (`low` / `high` / `max` / `default`) — GLM's reasoning
+  depth. `high` is the sweet spot: a full-quality summary at roughly the token cost of `low`,
+  because the unhinted default burns 1,400–2,000 tokens on a hidden reasoning trace for no
+  extra output quality.
+- **`FAMABOT_ZAI_PRICE_IN`/`_CACHED`/`_OUT`** — USD per 1M tokens, defaulting to z.ai's
+  published GLM-5.3-Flash list price. Every evaluation stores its token counts and an
+  approximate cost (z.ai's API returns tokens, not dollars) — visible in the `browse`/`serve`
+  detail modal and the `reevaluate` output.
+
+Note GLM-5.3-Flash isn't fully deterministic; borderline fit scores can move ±~0.05 between
+identical runs.
+
+**What it sees.** Per listing, the model gets a JSON object: `title`, `price`, `currency`,
+`location`, `posted_at`, `commute_minutes`/`commute_km` (if drive-time enrichment is on), the
+listing's **description text**, `external_links` (non-Facebook URLs found in it), and the
+listing `url`. It does **not** get photos, the seller's profile, or the contents of external
+links.
+
+The description is cleaned before the model ever sees it — Facebook's detail page appends a
+Walk Score widget, an ad slot, the seller card, and a "Today's picks" carousel of unrelated
+items after the actual listing content, and none of that is useful signal. famabot trims
+everything from the ad/seller-card boundary onward while keeping the seller's own text, the
+attribute rows (bed/bath counts, vehicle year/mileage, whatever the category has), and the
+walkability/transit summary — typically cutting description size by ~40–60% and removing every
+trace of the unrelated-listings carousel. This works the same for any category, not just
+rentals.
+
+The prompt treats "pushes you to an external site/form, asks for money before you've seen the
+item, or offers no way to verify it in person" as a red flag regardless of category. Adding
+**image analysis** is possible but needs an API-based provider (the headless `claude -p` CLI
+has no image input).
+
+## Configuration
 
 | Var | Default | Meaning |
 |---|---|---|
@@ -147,39 +245,11 @@ a used desk.
 | `FAMABOT_HEADLESS` | `true` | `poll`/`watch` browser visibility (`login` is always headed). |
 | `FAMABOT_SEARCHES` | `./searches.yaml` | Searches file path. |
 
-## Notes & limitations
+Scraping pace, evaluator backend, notifications, and drive-time routing each have their own
+block of `FAMABOT_*` vars — all documented with defaults in `.env.example`, which is the
+source of truth; nothing here duplicates it.
 
-- Scraping Marketplace is against Facebook's Terms of Service and its page/GraphQL structure
-  changes without notice. The scraper tries GraphQL-response capture first and falls back to
-  DOM parsing; the raw payload is stored in `listings.raw_json` for re-parsing.
-- **Pace is deliberately slow** and built for 24/7 background use: searches run in random
-  order, ~20 listings each, 30 s (± random) between detail-page opens, 2 min between searches,
-  90 min between polls. All tunable via `FAMABOT_*` env vars (see `.env.example`); the first
-  poll is the slow one, steady-state polls have little to do. Run it with
-  `npm run dev -- watch` (or the built `node dist/cli.js watch`) under `nohup`, `pm2`, `tmux`,
-  or a launchd/systemd unit.
-- **Location:** set `criteria.lat` / `criteria.lng` (with `radiusKm`). Facebook only reliably
-  scopes a Marketplace search by coordinates — a `/marketplace/<city>/` slug it doesn't
-  recognise gets silently redirected to a generic, IP-based page with **all filters dropped**
-  (famabot logs a `WARN` when it detects this). If a location still won't stick, open
-  `famabot login` and set your Marketplace location + radius by hand once; the account
-  remembers it.
-- If `better-sqlite3` ever fails to build, `src/db/index.ts` can be switched to the Node 24
-  built-in `node:sqlite` with no other code changes.
-
-### What the evaluator sees
-
-It runs as **your own local buyer's agent** (persona set in `src/evaluate/prompt.ts`,
-overridable via `FAMABOT_PERSONA`). Per listing the `claude` call gets a JSON object: `title`,
-`price`, `currency`, `location`, `posted_at`, `commute_minutes` / `commute_km` (if drive-time
-enrichment is on), the full **description text** from the detail page (includes FB's attribute
-rows — bedrooms, property type — as text, ≤6 000 chars), `external_links` (non-Facebook URLs
-found in that text), and the listing `url`. It does **not** get photos, the seller's profile,
-the map, or the contents of external links. The prompt treats "pushes you to an external form /
-asks for money before a viewing / no local showing offer" as a red flag. Adding **image
-analysis** is possible but needs an API-based provider (headless `claude -p` has no image input).
-
-### Drive time to a fixed point (e.g. a train station)
+## Drive time to a fixed point
 
 Set `criteria.commute` (`lat`/`lng`, optional `label`, `arriveBy` "HH:MM", `dayOfWeek`,
 `maxMinutes`) and `FAMABOT_ROUTING` to a provider:
@@ -198,18 +268,19 @@ city-level, so treat the number as approximate unless the listing names a street
 `browse --max-commute <min>`. With `commute.maxMinutes` set it becomes a hard reject once a
 provider is configured; until then it's ignored.
 
-### Freshness — the Facebook query
+## Freshness and poll frequency
 
 The search URL always sends `sortBy=creation_time_descend`, and after scraping, the results
 are re-sorted by `posted_at` and only the newest `FAMABOT_LISTING_CAP` (20) are kept — so a
 poll always looks at the genuinely-newest listings even when FB's own ordering is "recommended"
 rather than chronological. Set `criteria.maxAgeDays` (snaps to FB's 1 / 7 / 30-day "Date
-listed" buckets) to drop everything older. The real lever for beating other renters is **poll
+listed" buckets) to drop everything older. The real lever for beating other buyers is **poll
 frequency** — 90 min is conservative; drop `FAMABOT_WATCH_INTERVAL_MIN` (or `watch -i`) to
-20–30 for a hot market, accepting a bit more ban risk. (`browse --sort fresh` is the
-report-side equivalent and is the default there.)
+30–40 for a hot market, accepting a bit more ban risk, or 20–25 for a short intense push (not
+recommended as a permanent setting). (`browse --sort fresh` is the report-side equivalent and
+is the default there.)
 
-### Re-indexing: dedup, and re-evaluate on change
+## Dedup and re-evaluation
 
 - **Dedup** is by `fb_id`. A listing already in the DB is never re-inserted or re-rendered; a
   scrape just refreshes `last_seen_at` and cheap fields (price, relist date) from the search
@@ -217,24 +288,42 @@ report-side equivalent and is the default there.)
 - **Change detection.** Price / relist-date changes are caught on every scrape. Description
   edits are caught on the recheck pass, compared on a *normalised signature* (page chrome like
   "12 people viewed" / "Listed 3h ago" is stripped) so only real edits count. Any change sets
-  `last_changed_at`.
-- **Re-evaluation.** When `last_changed_at` is newer than `evaluated_at`, the next poll
-  re-runs the agent (up to 20/poll). For evaluator-owned phases (`new` / `candidate` /
-  `rejected`) the verdict and phase are updated. For a listing **you've** advanced
-  (`contacted` …) the score/reasoning are refreshed but the phase is left alone, and — if
-  notifications are on — you get a `↻ updated` ping.
+  `last_changed_at`, and a re-evaluation is dispatched immediately.
+- **Re-evaluation.** For evaluator-owned phases (`new` / `candidate` / `rejected`) the verdict
+  and phase are updated. For a listing **you've** advanced (`contacted` …) the score/reasoning
+  are refreshed but the phase is left alone, and — if notifications are on — you get a
+  `↻ updated` ping.
+- **Listings that disappear.** Every poll re-opens up to `FAMABOT_RECHECK_PER_POLL` (default 8)
+  of the stalest listings you're pursuing (`candidate` + manually-advanced phases; `new`/
+  `rejected` are skipped). `famabot recheck -n 20` does a bigger batch on demand. If the page
+  says sold/removed/unavailable (or redirects to the Marketplace home) the listing is marked
+  `availability = unavailable` and hidden from `browse`/`serve` unless you pass `--all`.
 
-### Listings that disappear
+## Notes and limitations
 
-Every poll re-opens up to `FAMABOT_RECHECK_PER_POLL` (default 8) of the stalest listings
-you're pursuing (`candidate` + manually-advanced phases; `new`/`rejected` are skipped).
-`famabot recheck -n 20` does a bigger batch on demand. If the page says
-sold/removed/unavailable (or redirects to the Marketplace home) the listing is marked
-`availability = unavailable` and hidden from `browse`/`serve` unless you pass `--all`.
+- Scraping Marketplace is against Facebook's Terms of Service, and its page/GraphQL structure
+  changes without notice. The scraper tries GraphQL-response capture first and falls back to
+  DOM parsing; the raw search payload is stored in `listings.raw_json` for re-parsing if the
+  format shifts.
+- **Pace is deliberately slow** and built for 24/7 background use: searches run in random
+  order, ~20 listings each, a randomized ~30s gap between detail-page opens, a ~2 min gap
+  between searches, tens of minutes between polls. All tunable via `FAMABOT_*` env vars (see
+  `.env.example`); the first poll is the slow one, steady-state polls have little to do. Run it
+  with `npm run dev -- watch` (or the built `node dist/cli.js watch`) under `nohup`, `pm2`,
+  `tmux`, or a launchd/systemd unit.
+- **Location:** set `criteria.lat` / `criteria.lng` (with `radiusKm`). Facebook only reliably
+  scopes a Marketplace search by coordinates — a `/marketplace/<city>/` slug it doesn't
+  recognise gets silently redirected to a generic, IP-based page with **all filters dropped**
+  (famabot logs a `WARN` when it detects this). If a location still won't stick, open
+  `famabot login` and set your Marketplace location + radius by hand once; the account
+  remembers it.
+- If `better-sqlite3` ever fails to build, `src/db/index.ts` can be switched to the Node 24
+  built-in `node:sqlite` with no other code changes.
+- This is a personal tool, published as-is under the MIT license (see [`LICENSE`](LICENSE)).
+  It scrapes a platform that actively tries to prevent scraping — expect to tune the pacing for
+  your own account's risk tolerance, and don't be surprised if Facebook's DOM/GraphQL shape
+  drifts and needs a selector fix.
 
-- The evaluator asks its backend for a JSON object per new listing (~10–15 s each) and
-  validates it with zod, retrying once. The `claude-cli` backend runs
-  `claude -p --output-format json --model claude-sonnet-5` with all tools disabled and a
-  scratch cwd so it doesn't pick up any project context; the `zai` backend POSTs to z.ai's
-  OpenAI-compatible `/chat/completions`. Both live behind the `EvalProvider` interface in
-  `src/evaluate/provider.ts` — add another provider there and a case in `createEvalProvider`.
+## License
+
+[MIT](LICENSE) © David Lukac

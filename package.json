@@ -1,6 +1,14 @@
 {
   "name": "famabot",
   "version": "0.1.0",
+  "description": "Watch Facebook Marketplace searches, score every new listing with an LLM against your own criteria, and get pushed only the ones worth your time.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davidlukac/famabot.git"
+  },
+  "homepage": "https://github.com/davidlukac/famabot#readme",
+  "bugs": "https://github.com/davidlukac/famabot/issues",
   "private": true,
   "type": "module",
   "bin": {
