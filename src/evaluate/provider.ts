@@ -57,6 +57,26 @@ export function sumUsage(parts: (EvalUsage | null)[]): EvalUsage | null {
   };
 }
 
+/**
+ * USD cost from tiered per-1M-token pricing, or null when no price is
+ * configured (all three zero) — shared by every API backend below.
+ */
+function tieredCost(
+  tokensIn: number,
+  tokensCached: number,
+  tokensOut: number,
+  priceInPerM: number,
+  priceCachedPerM: number,
+  priceOutPerM: number,
+): number | null {
+  if (priceInPerM <= 0 && priceCachedPerM <= 0 && priceOutPerM <= 0) return null;
+  return (
+    ((tokensIn - tokensCached) / 1e6) * priceInPerM +
+    (tokensCached / 1e6) * priceCachedPerM +
+    (tokensOut / 1e6) * priceOutPerM
+  );
+}
+
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 // --- claude-cli backend ------------------------------------------------------
@@ -145,6 +165,151 @@ class ClaudeCliProvider implements EvalProvider {
       };
     }
     return { text: String(payload.result ?? ""), usage };
+  }
+}
+
+// --- claude-api backend ------------------------------------------------------
+
+const CLAUDE_API_DEFAULT_BASE_URL = "https://api.anthropic.com/v1";
+const CLAUDE_API_VERSION = "2023-06-01";
+// Deliberately the small/fast tier, not the CLI's old Sonnet default — a
+// per-listing yes/no classification doesn't need a flagship model.
+const CLAUDE_API_DEFAULT_MODEL = "claude-haiku-4-5-20251001";
+const CLAUDE_API_DEFAULT_MAX_TOKENS = 4096;
+
+// Anthropic published list price for Claude Haiku 4.5, USD per 1M tokens (2026):
+//   input $1.00 · cached input (read) $0.10 (90% off) · output $5.00
+const CLAUDE_API_DEFAULT_PRICE_IN = 1.0;
+const CLAUDE_API_DEFAULT_PRICE_CACHED = 0.1;
+const CLAUDE_API_DEFAULT_PRICE_OUT = 5.0;
+
+export interface ClaudeApiOptions {
+  apiKey: string | undefined;
+  baseUrl: string;
+  maxTokens: number;
+  priceInPerM: number;
+  priceCachedPerM: number;
+  priceOutPerM: number;
+}
+
+interface ClaudeApiUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+}
+
+/**
+ * Anthropic Messages API directly (needs FAMABOT_CLAUDE_API_KEY) — the API-key
+ * counterpart to `claude-cli`'s subscription auth, for when you'd rather bill
+ * per-token than through a Claude subscription.
+ *
+ * Built strictly to Anthropic's documented Messages API shape; not
+ * live-tested end-to-end (no API key was available at implementation time —
+ * the request/response plumbing mirrors the already-proven z.ai provider).
+ */
+class ClaudeApiProvider implements EvalProvider {
+  private readonly o: ClaudeApiOptions;
+
+  constructor(
+    readonly model: string,
+    options: ClaudeApiOptions,
+  ) {
+    this.o = options;
+  }
+
+  async complete(
+    prompt: string,
+    opts: CompleteOptions = {},
+  ): Promise<CompleteResult> {
+    if (!this.o.apiKey) {
+      throw new EvalProviderError(
+        "FAMABOT_CLAUDE_API_KEY is not set (FAMABOT_EVALUATOR=claude-api).",
+      );
+    }
+    const body: Record<string, unknown> = {
+      model: this.model,
+      max_tokens: this.o.maxTokens,
+      messages: [{ role: "user", content: prompt }],
+    };
+    if (opts.systemPrompt) body.system = opts.systemPrompt;
+
+    let res: Response;
+    try {
+      res = await fetch(`${this.o.baseUrl}/messages`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": this.o.apiKey,
+          "anthropic-version": CLAUDE_API_VERSION,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+      });
+    } catch (err) {
+      throw new EvalProviderError(
+        `Claude API request failed: ${(err as Error).message}`,
+      );
+    }
+
+    const bodyText = await res.text();
+    if (!res.ok) {
+      throw new EvalProviderError(
+        `Claude API returned ${res.status}: ${bodyText.slice(0, 500)}`,
+      );
+    }
+
+    let payload: {
+      content?: { type?: string; text?: string }[];
+      stop_reason?: string;
+      usage?: ClaudeApiUsage;
+    };
+    try {
+      payload = JSON.parse(bodyText);
+    } catch {
+      throw new EvalProviderError(
+        `Could not parse Claude API response as JSON:\n${bodyText.slice(0, 500)}`,
+      );
+    }
+
+    const text = payload.content?.find((b) => b.type === "text")?.text;
+    if (!text) {
+      throw new EvalProviderError(
+        `Claude API response had no text content (stop_reason: ${payload.stop_reason ?? "?"}):\n${bodyText.slice(0, 500)}`,
+      );
+    }
+
+    const usage = this.toUsage(payload.usage);
+    if (usage) {
+      log.debug(
+        `claude-api usage: ${usage.tokensIn} in (${usage.tokensCached} cached) + ${usage.tokensOut} out` +
+          (usage.costUsd != null ? `  ~$${usage.costUsd.toFixed(5)}` : ""),
+      );
+    }
+    return { text, usage };
+  }
+
+  private toUsage(u: ClaudeApiUsage | undefined): EvalUsage | null {
+    if (!u) return null;
+    const cached = u.cache_read_input_tokens ?? 0;
+    // Cache-creation tokens are billed at (roughly) the normal input rate, not
+    // the cheap cache-read rate, so they're folded into the "uncached" side.
+    const tokensIn =
+      (u.input_tokens ?? 0) + cached + (u.cache_creation_input_tokens ?? 0);
+    const tokensOut = u.output_tokens ?? 0;
+    return {
+      tokensIn,
+      tokensOut,
+      tokensCached: cached,
+      costUsd: tieredCost(
+        tokensIn,
+        cached,
+        tokensOut,
+        this.o.priceInPerM,
+        this.o.priceCachedPerM,
+        this.o.priceOutPerM,
+      ),
+    };
   }
 }
 
@@ -286,26 +451,24 @@ class ZaiProvider implements EvalProvider {
     return { text: content, usage };
   }
 
-  /** True when at least one price is set, so a cost figure is meaningful. */
-  private get priced(): boolean {
-    return (
-      this.o.priceInPerM > 0 ||
-      this.o.priceCachedPerM > 0 ||
-      this.o.priceOutPerM > 0
-    );
-  }
-
   private toUsage(u: ZaiUsage | undefined): EvalUsage | null {
     if (!u) return null;
     const tokensIn = u.prompt_tokens ?? 0;
     const tokensOut = u.completion_tokens ?? 0;
     const tokensCached = u.prompt_tokens_details?.cached_tokens ?? 0;
-    const costUsd = this.priced
-      ? ((tokensIn - tokensCached) / 1e6) * this.o.priceInPerM +
-        (tokensCached / 1e6) * this.o.priceCachedPerM +
-        (tokensOut / 1e6) * this.o.priceOutPerM
-      : null;
-    return { tokensIn, tokensOut, tokensCached, costUsd };
+    return {
+      tokensIn,
+      tokensOut,
+      tokensCached,
+      costUsd: tieredCost(
+        tokensIn,
+        tokensCached,
+        tokensOut,
+        this.o.priceInPerM,
+        this.o.priceCachedPerM,
+        this.o.priceOutPerM,
+      ),
+    };
   }
 
   private logUsage(
@@ -325,6 +488,305 @@ class ZaiProvider implements EvalProvider {
       line += `  [finish_reason: ${finishReason}]`;
     }
     log.debug(line);
+  }
+}
+
+// --- codex-cli backend -----------------------------------------------------
+
+/** Scratch cwd — same reasoning as CLI_CWD above: no project context leaks in. */
+const CODEX_CLI_CWD = mkdtempSync(join(tmpdir(), "famabot-codex-"));
+
+// The only model confirmed to work under ChatGPT-account auth at
+// implementation time (this machine, codex-cli 0.151.0) — OpenAI's API-only
+// model names (gpt-5-mini, gpt-5-codex, o4-mini, the account's own configured
+// default...) were all rejected with "not supported when using Codex with a
+// ChatGPT account." Override via FAMABOT_CODEX_CLI_MODEL if your account/CLI
+// version allows something lighter; there was no smaller option available to
+// pick here as a default.
+const CODEX_CLI_DEFAULT_MODEL = "gpt-5.5";
+
+interface CodexEvent {
+  type?: string;
+  item?: { type?: string; text?: string };
+  usage?: {
+    input_tokens?: number;
+    cached_input_tokens?: number;
+    cache_write_input_tokens?: number;
+    output_tokens?: number;
+  };
+  error?: { message?: string };
+  message?: string;
+}
+
+/** Pull the first error-ish event out of a `codex exec --json` stream, if any. */
+function findCodexError(stdout: string): string | undefined {
+  for (const line of stdout.split("\n")) {
+    const t = line.trim();
+    if (!t.startsWith("{")) continue;
+    try {
+      const evt = JSON.parse(t) as CodexEvent;
+      if (evt.type === "error" || evt.type === "turn.failed") {
+        return evt.error?.message ?? evt.message ?? t;
+      }
+    } catch {
+      /* not JSON, skip */
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Runs one non-interactive `codex exec` turn via the local Codex CLI
+ * (ChatGPT-subscription auth — no OPENAI_API_KEY needed). `--json` streams
+ * newline-delimited events; we take the final `agent_message` as the reply
+ * and `turn.completed.usage` for token accounting (no cost estimate — this is
+ * subscription usage, not metered per-token billing, same as `claude-cli`).
+ *
+ * Reasoning effort is forced to `low`: Codex's own harness/tool-definition
+ * overhead runs ~15-17k input tokens per call (mostly cache hits) regardless
+ * of prompt content, which dwarfs anything reasoning-effort tuning saves —
+ * unlike z.ai's GLM backend, there's no cheap way around that fixed cost here.
+ */
+class CodexCliProvider implements EvalProvider {
+  constructor(readonly model: string) {}
+
+  async complete(
+    prompt: string,
+    opts: CompleteOptions = {},
+  ): Promise<CompleteResult> {
+    const fullPrompt = opts.systemPrompt
+      ? `${opts.systemPrompt}\n\n---\n\n${prompt}`
+      : prompt;
+    const args = [
+      "exec",
+      "-m",
+      this.model,
+      "-c",
+      "model_reasoning_effort=low",
+      "-s",
+      "read-only",
+      "--skip-git-repo-check",
+      "--ephemeral",
+      "--json",
+      "-C",
+      CODEX_CLI_CWD,
+      fullPrompt,
+    ];
+
+    let stdout: string;
+    try {
+      const child = execFileAsync("codex", args, {
+        cwd: CODEX_CLI_CWD,
+        timeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        maxBuffer: 16 * 1024 * 1024,
+      });
+      // Close stdin immediately — codex otherwise waits on it even though the
+      // prompt is already a positional arg (it appends piped stdin as extra
+      // context if the pipe stays open).
+      child.child.stdin?.end();
+      ({ stdout } = await child);
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException & { stdout?: string; stderr?: string };
+      if (e.code === "ENOENT") {
+        throw new EvalProviderError(
+          "`codex` CLI not found on PATH. Install it (npm i -g @openai/codex, or " +
+            "brew install codex), or set FAMABOT_EVALUATOR to another backend.",
+        );
+      }
+      const detail = e.stdout ? findCodexError(e.stdout) : undefined;
+      throw new EvalProviderError(
+        `codex exec failed: ${detail ?? e.stderr?.trim() ?? e.message}`,
+      );
+    }
+
+    let text: string | undefined;
+    let usage: EvalUsage | null = null;
+    for (const line of stdout.split("\n")) {
+      const t = line.trim();
+      if (!t.startsWith("{")) continue;
+      let evt: CodexEvent;
+      try {
+        evt = JSON.parse(t);
+      } catch {
+        continue;
+      }
+      if (evt.type === "item.completed" && evt.item?.type === "agent_message") {
+        text = evt.item.text;
+      } else if (evt.type === "turn.completed" && evt.usage) {
+        const u = evt.usage;
+        usage = {
+          tokensIn: (u.input_tokens ?? 0) + (u.cache_write_input_tokens ?? 0),
+          tokensOut: u.output_tokens ?? 0,
+          tokensCached: u.cached_input_tokens ?? 0,
+          costUsd: null,
+        };
+      } else if (evt.type === "turn.failed" || evt.type === "error") {
+        throw new EvalProviderError(
+          `codex exec error: ${evt.error?.message ?? evt.message ?? t}`,
+        );
+      }
+    }
+    if (!text) {
+      throw new EvalProviderError(
+        `codex exec produced no agent_message:\n${stdout.slice(0, 500)}`,
+      );
+    }
+    if (usage) {
+      log.debug(
+        `codex-cli usage: ${usage.tokensIn} in (${usage.tokensCached} cached) + ${usage.tokensOut} out`,
+      );
+    }
+    return { text, usage };
+  }
+}
+
+// --- codex-api backend -------------------------------------------------------
+
+const CODEX_API_DEFAULT_BASE_URL = "https://api.openai.com/v1";
+// Small/fast tier, matching the same "no flagship model for a classifier" call
+// as claude-api's Haiku default. OpenAI's cheap-tier naming turns over fast —
+// check platform.openai.com/pricing and override FAMABOT_CODEX_API_MODEL /
+// _PRICE_* if this has been superseded.
+const CODEX_API_DEFAULT_MODEL = "gpt-5-mini";
+const CODEX_API_DEFAULT_MAX_TOKENS = 4096;
+
+// OpenAI published list price for GPT-5-mini, USD per 1M tokens (2026):
+//   input $0.25 · cached input ~50% off ($0.125, standard OpenAI cache discount) · output $2.00
+const CODEX_API_DEFAULT_PRICE_IN = 0.25;
+const CODEX_API_DEFAULT_PRICE_CACHED = 0.125;
+const CODEX_API_DEFAULT_PRICE_OUT = 2.0;
+
+export interface CodexApiOptions {
+  apiKey: string | undefined;
+  baseUrl: string;
+  maxTokens: number;
+  priceInPerM: number;
+  priceCachedPerM: number;
+  priceOutPerM: number;
+}
+
+interface CodexApiUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  prompt_tokens_details?: { cached_tokens?: number };
+}
+
+/**
+ * OpenAI Chat Completions API directly (needs FAMABOT_CODEX_API_KEY) — the
+ * API-key counterpart to `codex-cli`'s ChatGPT-subscription auth, and not
+ * subject to that auth's model allowlist.
+ *
+ * Built strictly to OpenAI's documented Chat Completions shape; not
+ * live-tested end-to-end (no API key was available at implementation time —
+ * the request/response plumbing mirrors the already-proven z.ai provider,
+ * which uses the same OpenAI-compatible wire format).
+ */
+class CodexApiProvider implements EvalProvider {
+  private readonly o: CodexApiOptions;
+
+  constructor(
+    readonly model: string,
+    options: CodexApiOptions,
+  ) {
+    this.o = options;
+  }
+
+  async complete(
+    prompt: string,
+    opts: CompleteOptions = {},
+  ): Promise<CompleteResult> {
+    if (!this.o.apiKey) {
+      throw new EvalProviderError(
+        "FAMABOT_CODEX_API_KEY is not set (FAMABOT_EVALUATOR=codex-api).",
+      );
+    }
+    const messages: { role: string; content: string }[] = [];
+    if (opts.systemPrompt) {
+      messages.push({ role: "system", content: opts.systemPrompt });
+    }
+    messages.push({ role: "user", content: prompt });
+
+    const body: Record<string, unknown> = {
+      model: this.model,
+      messages,
+      max_completion_tokens: this.o.maxTokens,
+      response_format: { type: "json_object" },
+    };
+
+    let res: Response;
+    try {
+      res = await fetch(`${this.o.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${this.o.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+      });
+    } catch (err) {
+      throw new EvalProviderError(
+        `OpenAI request failed: ${(err as Error).message}`,
+      );
+    }
+
+    const bodyText = await res.text();
+    if (!res.ok) {
+      throw new EvalProviderError(
+        `OpenAI API returned ${res.status}: ${bodyText.slice(0, 500)}`,
+      );
+    }
+
+    let payload: {
+      choices?: { message?: { content?: unknown }; finish_reason?: string }[];
+      usage?: CodexApiUsage;
+    };
+    try {
+      payload = JSON.parse(bodyText);
+    } catch {
+      throw new EvalProviderError(
+        `Could not parse OpenAI response as JSON:\n${bodyText.slice(0, 500)}`,
+      );
+    }
+
+    const finishReason = payload.choices?.[0]?.finish_reason;
+    const content = payload.choices?.[0]?.message?.content;
+    if (typeof content !== "string" || content.length === 0) {
+      throw new EvalProviderError(
+        `OpenAI response had no message content` +
+          (finishReason ? ` (finish_reason: ${finishReason})` : "") +
+          `:\n${bodyText.slice(0, 500)}`,
+      );
+    }
+
+    const usage = this.toUsage(payload.usage);
+    if (usage) {
+      log.debug(
+        `codex-api usage: ${usage.tokensIn} in (${usage.tokensCached} cached) + ${usage.tokensOut} out` +
+          (usage.costUsd != null ? `  ~$${usage.costUsd.toFixed(5)}` : ""),
+      );
+    }
+    return { text: content, usage };
+  }
+
+  private toUsage(u: CodexApiUsage | undefined): EvalUsage | null {
+    if (!u) return null;
+    const tokensIn = u.prompt_tokens ?? 0;
+    const tokensOut = u.completion_tokens ?? 0;
+    const tokensCached = u.prompt_tokens_details?.cached_tokens ?? 0;
+    return {
+      tokensIn,
+      tokensOut,
+      tokensCached,
+      costUsd: tieredCost(
+        tokensIn,
+        tokensCached,
+        tokensOut,
+        this.o.priceInPerM,
+        this.o.priceCachedPerM,
+        this.o.priceOutPerM,
+      ),
+    };
   }
 }
 
@@ -351,8 +813,66 @@ export function createEvalProvider(
   const kind = (env.FAMABOT_EVALUATOR ?? "claude-cli").trim().toLowerCase();
   switch (kind) {
     case "claude-cli":
+      // Small/fast tier by default — a per-listing yes/no call doesn't need
+      // a flagship model. Override with e.g. claude-sonnet-5 if you want more.
       return new ClaudeCliProvider(
-        env.FAMABOT_EVAL_MODEL?.trim() || "claude-sonnet-5",
+        env.FAMABOT_EVAL_MODEL?.trim() || "claude-haiku-4-5-20251001",
+      );
+    case "claude-api":
+      return new ClaudeApiProvider(
+        env.FAMABOT_CLAUDE_API_MODEL?.trim() || CLAUDE_API_DEFAULT_MODEL,
+        {
+          apiKey: env.FAMABOT_CLAUDE_API_KEY?.trim() || undefined,
+          baseUrl:
+            env.FAMABOT_CLAUDE_API_BASE_URL?.trim().replace(/\/+$/, "") ||
+            CLAUDE_API_DEFAULT_BASE_URL,
+          maxTokens: envNum(
+            env.FAMABOT_CLAUDE_API_MAX_TOKENS,
+            CLAUDE_API_DEFAULT_MAX_TOKENS,
+          ),
+          priceInPerM: envPrice(
+            env.FAMABOT_CLAUDE_API_PRICE_IN,
+            CLAUDE_API_DEFAULT_PRICE_IN,
+          ),
+          priceCachedPerM: envPrice(
+            env.FAMABOT_CLAUDE_API_PRICE_CACHED,
+            CLAUDE_API_DEFAULT_PRICE_CACHED,
+          ),
+          priceOutPerM: envPrice(
+            env.FAMABOT_CLAUDE_API_PRICE_OUT,
+            CLAUDE_API_DEFAULT_PRICE_OUT,
+          ),
+        },
+      );
+    case "codex-cli":
+      return new CodexCliProvider(
+        env.FAMABOT_CODEX_CLI_MODEL?.trim() || CODEX_CLI_DEFAULT_MODEL,
+      );
+    case "codex-api":
+      return new CodexApiProvider(
+        env.FAMABOT_CODEX_API_MODEL?.trim() || CODEX_API_DEFAULT_MODEL,
+        {
+          apiKey: env.FAMABOT_CODEX_API_KEY?.trim() || undefined,
+          baseUrl:
+            env.FAMABOT_CODEX_API_BASE_URL?.trim().replace(/\/+$/, "") ||
+            CODEX_API_DEFAULT_BASE_URL,
+          maxTokens: envNum(
+            env.FAMABOT_CODEX_API_MAX_TOKENS,
+            CODEX_API_DEFAULT_MAX_TOKENS,
+          ),
+          priceInPerM: envPrice(
+            env.FAMABOT_CODEX_API_PRICE_IN,
+            CODEX_API_DEFAULT_PRICE_IN,
+          ),
+          priceCachedPerM: envPrice(
+            env.FAMABOT_CODEX_API_PRICE_CACHED,
+            CODEX_API_DEFAULT_PRICE_CACHED,
+          ),
+          priceOutPerM: envPrice(
+            env.FAMABOT_CODEX_API_PRICE_OUT,
+            CODEX_API_DEFAULT_PRICE_OUT,
+          ),
+        },
       );
     case "zai": {
       const effortRaw = (
@@ -387,7 +907,8 @@ export function createEvalProvider(
     }
     default:
       throw new EvalProviderError(
-        `Unknown FAMABOT_EVALUATOR: "${kind}" (expected "claude-cli" or "zai").`,
+        `Unknown FAMABOT_EVALUATOR: "${kind}" (expected one of ` +
+          `"claude-cli", "claude-api", "codex-cli", "codex-api", "zai").`,
       );
   }
 }

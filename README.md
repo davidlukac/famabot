@@ -58,7 +58,7 @@ searches.yaml ──▶ scrape (Playwright, your logged-in Chromium session)
                   dedupe against SQLite  ──▶ new listings
                      │
                      ▼
-                  evaluate each (local `claude` CLI, or z.ai/GLM — your choice)
+                  evaluate each (Claude / Codex / z.ai — CLI or API key, your choice)
                      │  verdict: candidate | reject  +  fit score (0–1)  +  reasoning
                      ▼
                   store + set phase  ──▶  candidate?  push to Telegram/ntfy
@@ -85,9 +85,9 @@ npm run dev -- watch          # or: npm run build && node dist/cli.js watch
 ```
 
 By default the evaluator shells out to your local **`claude` CLI** (existing Claude
-subscription, no API key needed — just make sure `claude` is on `PATH` and signed in). To use
-the **z.ai API** (GLM models) instead, set `FAMABOT_EVALUATOR=zai` and `FAMABOT_ZAI_API_KEY` in
-`.env` — see [The evaluator](#the-evaluator) for the full set of knobs and what each one costs.
+subscription, no API key needed — just make sure `claude` is on `PATH` and signed in). Claude
+API, Codex CLI, Codex API, and z.ai/GLM are all available too — set `FAMABOT_EVALUATOR` in
+`.env` — see [The evaluator](#the-evaluator) for the full list and what each one costs.
 
 The Facebook login session lives in `./.data/chromium-profile/` and is reused headlessly from
 then on. Re-run `login` if it expires or Facebook throws a checkpoint at it.
@@ -195,12 +195,37 @@ account hits Facebook, it just covers more ground per poll.
 
 ## The evaluator
 
-By default the evaluator shells out to the local **`claude` CLI** — your existing Claude
-subscription, no API key. To use the **z.ai API** (GLM models) instead, set
-`FAMABOT_EVALUATOR=zai` and `FAMABOT_ZAI_API_KEY` in `.env` (model defaults to
-`glm-5.3-flash`, override with `FAMABOT_ZAI_MODEL`). Both backends live behind the
-`EvalProvider` interface in `src/evaluate/provider.ts` — adding another one is a small,
-self-contained change.
+Five interchangeable backends, chosen with `FAMABOT_EVALUATOR` — a subscription-CLI and an
+API-key option for both Claude and Codex, plus z.ai/GLM:
+
+| `FAMABOT_EVALUATOR` | Auth | Default model | Notes |
+|---|---|---|---|
+| `claude-cli` *(default)* | your Claude subscription, no key | `claude-haiku-4-5-20251001` | shells out to the local `claude` CLI |
+| `claude-api` | `FAMABOT_CLAUDE_API_KEY` | `claude-haiku-4-5-20251001` | Anthropic Messages API directly |
+| `codex-cli` | your ChatGPT subscription, no key | `gpt-5.5` | shells out to the local `codex` CLI |
+| `codex-api` | `FAMABOT_CODEX_API_KEY` | `gpt-5-mini` | OpenAI Chat Completions API directly |
+| `zai` | `FAMABOT_ZAI_API_KEY` | `glm-5.3-flash` | z.ai's OpenAI-compatible API |
+
+All five live behind the `EvalProvider` interface in `src/evaluate/provider.ts` — adding
+another one is a small, self-contained change. Defaults deliberately favor small/fast models
+(Haiku, not Sonnet; a mini tier, not a flagship) since scoring one listing against a rubric
+doesn't need a frontier model — override any of them (`.env.example` has the full list of
+`_MODEL` / `_API_KEY` / `_BASE_URL` vars per backend).
+
+**`codex-cli` caveat:** ChatGPT-subscription auth only allows a specific set of models — every
+plain OpenAI API model name (`gpt-5-mini`, `gpt-5-codex`, `o4-mini`, …) was rejected with "not
+supported when using Codex with a ChatGPT account" during testing. `gpt-5.5` was the one
+confirmed to work; there was no lighter option available to fall back to. It also carries a
+large, mostly-cached fixed overhead from Codex's own agent harness (~15k input tokens/call
+regardless of prompt size) that reasoning-effort tuning can't get around — `codex-api` avoids
+that overhead entirely if per-call cost matters more than avoiding a second API key.
+
+**Untested paths:** `claude-api` and `codex-api` were built strictly to their providers'
+documented request/response shapes and verified against the real endpoints (auth, error
+handling, request format all confirmed live — up to the point of a valid key, which wasn't
+available at implementation time). `claude-cli`, `codex-cli`, and `zai` are exercised in
+production. If you hit a rough edge on the API-key paths, it's likely a response-parsing detail
+— please file an issue.
 
 z.ai-specific knobs (see `.env.example` for the full list and current defaults):
 
@@ -211,7 +236,10 @@ z.ai-specific knobs (see `.env.example` for the full list and current defaults):
 - **`FAMABOT_ZAI_PRICE_IN`/`_CACHED`/`_OUT`** — USD per 1M tokens, defaulting to z.ai's
   published GLM-5.3-Flash list price. Every evaluation stores its token counts and an
   approximate cost (z.ai's API returns tokens, not dollars) — visible in the `browse`/`serve`
-  detail modal and the `reevaluate` output.
+  detail modal and the `reevaluate` output. `claude-api` and `codex-api` store the same
+  token/cost accounting from their own published list prices; `claude-cli` reports its
+  subscription-billed cost when the CLI provides one; `codex-cli` reports tokens only (no
+  dollar figure — subscription usage, not metered billing).
 
 Note GLM-5.3-Flash isn't fully deterministic; borderline fit scores can move ±~0.05 between
 identical runs.
