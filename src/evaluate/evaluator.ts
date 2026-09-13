@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ListingRow, Search } from "../types.js";
 import { log } from "../log.js";
 import { cleanListingText } from "../scrape/clean.js";
+import { extractExternalLinks } from "../shared/links.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { getEvalProvider, sumUsage, type EvalUsage } from "./provider.js";
 import { extractJson } from "./runner.js";
@@ -72,11 +73,7 @@ export function toListingInput(
 ): ListingInput {
   // Extract links from the RAW blob — an off-platform URL could sit anywhere,
   // including a line we're about to trim.
-  const links =
-    extra.links ??
-    [...new Set((row.description ?? "").match(/https?:\/\/[^\s)"']+/gi) ?? [])].filter(
-      (u) => !/facebook\.com|fbcdn\.net|fb\.me/i.test(u),
-    );
+  const links = extra.links ?? extractExternalLinks(row.description);
   return {
     fbId: row.fb_id,
     title: row.title,

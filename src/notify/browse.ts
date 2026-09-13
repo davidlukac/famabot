@@ -1,5 +1,6 @@
 import { writeFileSync } from "node:fs";
 import type { ListingRow, Phase } from "../types.js";
+import { extractExternalLinks } from "../shared/links.js";
 
 export interface BrowseFilters {
   phases?: Phase[];
@@ -95,9 +96,7 @@ function toItem(row: ListingRow): BrowseItem {
     ms(row.last_changed_at),
     ms(row.first_seen_at),
   );
-  const links = [
-    ...new Set((row.description ?? "").match(/https?:\/\/[^\s)"']+/gi) ?? []),
-  ].filter((u) => !/facebook\.com|fbcdn\.net|fb\.me/i.test(u));
+  const links = extractExternalLinks(row.description);
   return {
     fbId: row.fb_id,
     url: row.url,

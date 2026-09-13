@@ -3,6 +3,7 @@ import type { Criteria, RawListing, Search } from "../types.js";
 import { log } from "../log.js";
 import { PACE, pause } from "../pace.js";
 import { collectListings, idFromHref } from "./parse.js";
+import { extractExternalLinks } from "../shared/links.js";
 
 /** Turn "Berlin, Germany" into the slug FB uses in /marketplace/<slug>/... */
 function citySlug(location: string | undefined): string {
@@ -256,9 +257,7 @@ export async function scrapeDetail(page: Page, fbId: string): Promise<DetailResu
         .trim();
     }
 
-    const links = [...new Set(desc.match(/https?:\/\/[^\s)"']+/gi) ?? [])].filter(
-      (u) => !/facebook\.com|fbcdn\.net|fb\.me/i.test(u),
-    );
+    const links = extractExternalLinks(desc);
     return {
       text: desc ? desc.slice(0, 6000) : null,
       unavailable: GONE_RE.test(fullText),

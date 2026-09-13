@@ -35,6 +35,7 @@ import {
 import { EVAL_MODEL, evaluateListing, toListingInput } from "./evaluate/evaluator.js";
 import type { Phase } from "./types.js";
 import { initLogger, log, logFilePath } from "./log.js";
+import { extractExternalLinks } from "./shared/links.js";
 
 const program = new Command();
 program
@@ -435,9 +436,7 @@ program
     console.log(
       `first seen: ${row.first_seen_at}   last seen: ${row.last_seen_at}${row.notified_at ? `   notified: ${row.notified_at}` : ""}`,
     );
-    const links = [
-      ...new Set((row.description ?? "").match(/https?:\/\/[^\s)"']+/gi) ?? []),
-    ].filter((u) => !/facebook\.com|fbcdn\.net|fb\.me/i.test(u));
+    const links = extractExternalLinks(row.description);
     if (links.length) console.log(`\nexternal links:\n  - ${links.join("\n  - ")}`);
     if (row.eval_reasoning) console.log(`\nreasoning:\n  ${row.eval_reasoning}`);
     if (extracted?.red_flags?.length)
