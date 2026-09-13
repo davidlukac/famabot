@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Command } from "commander";
 import { loadConfig, loadSearches } from "./config.js";
@@ -33,11 +34,19 @@ import type { Phase } from "./types.js";
 import { initLogger, log, logFilePath } from "./log.js";
 import { extractExternalLinks } from "./shared/links.js";
 
+// Single source of truth for the version string — was a second hardcoded
+// copy here that had already drifted from package.json once.
+const pkgVersion = (
+  JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+    version: string;
+  }
+).version;
+
 const program = new Command();
 program
   .name("famabot")
   .description("Watch Facebook Marketplace searches and triage listings with an agent.")
-  .version("0.1.0")
+  .version(pkgVersion)
   .option("-v, --verbose", "debug-level logging (also writes to the log file)")
   .hook("preAction", (thisCmd, actionCmd) => {
     const cfg = loadConfig();
