@@ -14,7 +14,6 @@ import {
   markNotified,
   queryListings,
   setAvailability,
-  setEvaluation,
   setPhase,
   trackedForRecheck,
 } from "./db/listings.js";
@@ -32,7 +31,8 @@ import {
   type BrowseFilters,
   type SortField,
 } from "./notify/browse.js";
-import { EVAL_MODEL, evaluateListing, toListingInput } from "./evaluate/evaluator.js";
+import { EVAL_MODEL } from "./evaluate/evaluator.js";
+import { evaluateStoreAndNotify } from "./services/evaluation-service.js";
 import type { Phase } from "./types.js";
 import { initLogger, log, logFilePath } from "./log.js";
 import { extractExternalLinks } from "./shared/links.js";
@@ -534,13 +534,17 @@ program
         );
         continue;
       }
-      const res = await evaluateListing(toListingInput(row), search);
-      if (!res) {
+      // reeval:true so a manually-advanced phase (contacted, …) is preserved,
+      // same protection `poll` gives it — and shares the notify-on-candidate
+      // behavior with poll instead of silently skipping it.
+      const outcome = await evaluateStoreAndNotify(db, row.fb_id, search, {
+        reeval: true,
+      });
+      if (!outcome) {
         console.warn(`[${row.fb_id}] unparseable response — skipped`);
         continue;
       }
-      const { evaluation: ev, usage } = res;
-      const phase = setEvaluation(db, row.fb_id, ev, EVAL_MODEL, usage);
+      const { evaluation: ev, usage, phase } = outcome;
       const cost = usage?.costUsd != null ? ` ~$${usage.costUsd.toFixed(4)}` : "";
       console.log(
         `[${row.fb_id}] ${ev.verdict} (fit ${ev.fit_score.toFixed(2)}) -> ${phase}${cost}`,

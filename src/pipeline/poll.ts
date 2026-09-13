@@ -11,17 +11,15 @@ import {
   queryListings,
   setAvailability,
   setCommute,
-  setEvaluation,
   trackedForRecheck,
-  updateEvaluation,
 } from "../db/listings.js";
 import { computeCommute, routingEnabled } from "../enrich/commute.js";
 import { log } from "../log.js";
 import { PACE, pause, shuffled } from "../pace.js";
 import { ensureLoggedIn } from "../scrape/browser.js";
 import { buildSearchUrl, scrapeDetail, scrapeSearch } from "../scrape/marketplace.js";
-import { EVAL_MODEL, evaluateListing, toListingInput } from "../evaluate/evaluator.js";
 import { renderCandidatesTable } from "../notify/cli.js";
+import { evaluateStoreAndNotify } from "../services/evaluation-service.js";
 import { pushCandidates, pushChanged } from "../services/notifications.js";
 
 export interface PollResult {
@@ -61,44 +59,25 @@ async function evalAndStore(
   const tag = reeval ? "re-eval" : "eval";
   log.info(`[${tag} #${seq}] ${fbId} — ${short(row.title, 60)}`);
   try {
-    const res = await evaluateListing(
-      toListingInput(row, { links: linksByFb.get(fbId) }),
-      search,
-    );
-    if (!res) {
-      log.warn(`[${tag}] ${fbId}: unparseable response, will retry next poll`);
-      return;
-    }
-    const { evaluation: ev, usage } = res;
+    // evaluateStoreAndNotify owns the actual eval/persist/notify + its own
+    // logging (verdict, reasoning, red flags, unparseable-reply warnings) —
+    // shared with `famabot reevaluate` so a candidate is pushed the same way
+    // regardless of which one found it.
+    const outcome = await evaluateStoreAndNotify(db, fbId, search, {
+      reeval,
+      links: linksByFb.get(fbId),
+      ctx,
+    });
+    if (!outcome) return;
     result.evaluated += 1;
-    let phase: string;
-    if (reeval) {
-      const r = updateEvaluation(db, fbId, ev, EVAL_MODEL, usage);
-      phase = r.phase;
-      log.info(
-        `[re-eval] ${fbId}: ${ev.verdict.toUpperCase()} fit=${ev.fit_score.toFixed(2)}` +
-          (r.phaseChanged ? ` -> ${r.phase}` : ` (kept phase ${r.phase})`),
-      );
-    } else {
-      phase = setEvaluation(db, fbId, ev, EVAL_MODEL, usage);
-      log.info(
-        `[eval] ${fbId}: ${ev.verdict.toUpperCase()} fit=${ev.fit_score.toFixed(2)} -> ${phase}`,
-      );
-    }
-    log.debug(`[${tag}] ${fbId} reason: ${ev.reasoning}`);
-    if (ev.red_flags.length)
-      log.debug(`[${tag}] ${fbId} red flags: ${ev.red_flags.join("; ")}`);
 
-    if (phase === "candidate") {
+    if (outcome.phase === "candidate") {
+      // Re-read so the row we keep for the end-of-poll backstop (and for
+      // renderCandidatesTable) has the notified_at evaluateStoreAndNotify's
+      // own push just set — otherwise the backstop would see a stale null
+      // and notify a second time.
       const fresh = getByFbId(db, fbId);
-      if (fresh) {
-        // Immediate push — pushCandidates is idempotent (gated on notified_at).
-        await pushCandidates(db, ctx, [fresh]);
-        // Re-read so the row we keep for the end-of-poll backstop (and for
-        // renderCandidatesTable) has the notified_at the push above just set —
-        // otherwise the backstop would see a stale null and notify a second time.
-        result.candidates.push(getByFbId(db, fbId) ?? fresh);
-      }
+      if (fresh) result.candidates.push(fresh);
     }
   } catch (err) {
     log.error(`[${tag}] ${fbId}: ${(err as Error).message}`);
