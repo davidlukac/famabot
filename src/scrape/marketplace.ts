@@ -1,7 +1,13 @@
 import type { Page, Response } from "playwright";
 import type { Criteria, RawListing, Search } from "../types.js";
 import { log } from "../log.js";
-import { PACE, pause, pickScrollRounds, shouldKeepScrolling } from "../pace.js";
+import {
+  PACE,
+  pause,
+  pickScrollRounds,
+  nextStaleStreak,
+  shouldKeepScrolling,
+} from "../pace.js";
 import { collectListings, idFromHref } from "./parse.js";
 import { extractExternalLinks } from "../shared/links.js";
 
@@ -162,7 +168,7 @@ export async function scrapeSearch(
       await pause(PACE.scrollPauseMin, PACE.scrollPauseSpan);
       await page.mouse.wheel(0, 3000 + Math.random() * 2000);
       const size = fromGraphql.size;
-      staleStreak = size > prevSize ? 0 : staleStreak + 1;
+      staleStreak = nextStaleStreak(i, size, prevSize, staleStreak);
       prevSize = size;
       log.debug(
         `scroll ${i + 1}/${maxRounds} — ${size} listing(s)` +

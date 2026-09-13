@@ -76,6 +76,25 @@ export function shouldKeepScrolling(s: ScrollLoopState): boolean {
   return s.round < s.maxRounds && s.size < s.cap && s.staleStreak < s.staleLimit;
 }
 
+/**
+ * Updated stale-streak count after one scroll round. Round 0 is always
+ * exempt from counting as "stale": a scroll's GraphQL responses consistently
+ * land about one round late (confirmed from real polls — round 1 never
+ * shows growth, round 2 always does), so judging round 0 by whether size
+ * grew would always say "no" regardless of whether scrolling is actually
+ * working, silently eating into the stale budget before it's had a fair
+ * chance.
+ */
+export function nextStaleStreak(
+  round: number,
+  size: number,
+  prevSize: number,
+  staleStreak: number,
+): number {
+  if (round === 0) return 0;
+  return size > prevSize ? 0 : staleStreak + 1;
+}
+
 /** Fisher–Yates shuffle (so we don't hit searches in the same order every time). */
 export function shuffled<T>(items: readonly T[]): T[] {
   const a = [...items];

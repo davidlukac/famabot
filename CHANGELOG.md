@@ -21,6 +21,19 @@ All notable changes to this project are documented here. Format loosely follows
   under `evaluate/provider/`, `reporting/html/`, and `commands/` — no behavior
   change, pure reorganization.
 
+### Fixed
+- `notifyCandidate()` "never throws" by design, but its three call sites were
+  marking a listing as notified unconditionally right after — a transient
+  backend failure (e.g. a Telegram network blip) silently and permanently
+  dropped the notification with no way to retry it. It now reports whether at
+  least one backend actually succeeded, and callers only mark the listing
+  notified when that's true.
+- The scroll early-stop's stale-round counter always saw round 1 as
+  unproductive (GraphQL responses land ~one round late, structurally, so
+  nothing has arrived yet by the time round 1 is checked), silently eating
+  half the default stale budget before scrolling had a fair chance. Round 0 is
+  now exempt from counting as stale.
+
 ## [0.2.0]
 
 ### Added

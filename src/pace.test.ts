@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pickScrollRounds, shouldKeepScrolling, shuffled } from "./pace.js";
+import {
+  nextStaleStreak,
+  pickScrollRounds,
+  shouldKeepScrolling,
+  shuffled,
+} from "./pace.js";
 
 test("shuffled: same elements, same length, new array", () => {
   const input = [1, 2, 3, 4, 5];
@@ -86,6 +91,23 @@ test("shouldKeepScrolling: stops after staleLimit consecutive no-new-listing rou
     }),
     false,
   );
+});
+
+test("nextStaleStreak: round 0 is always exempt, regardless of size", () => {
+  // Nothing has had time to arrive from the network yet at round 0 — it
+  // must never count as "stale" even though size hasn't grown.
+  assert.equal(nextStaleStreak(0, 0, 0, 0), 0);
+  assert.equal(nextStaleStreak(0, 5, 5, 1), 0);
+});
+
+test("nextStaleStreak: after round 0, growth resets the streak", () => {
+  assert.equal(nextStaleStreak(1, 10, 0, 1), 0);
+  assert.equal(nextStaleStreak(2, 20, 10, 0), 0);
+});
+
+test("nextStaleStreak: after round 0, no growth increments the streak", () => {
+  assert.equal(nextStaleStreak(1, 10, 10, 0), 1);
+  assert.equal(nextStaleStreak(2, 10, 10, 1), 2);
 });
 
 test("shouldKeepScrolling: keeps going when under every limit", () => {
