@@ -2,6 +2,7 @@ import type { DB } from "./index.js";
 import { nowIso } from "./index.js";
 import type { Evaluation } from "../evaluate/evaluator.js";
 import type { EvalUsage } from "../evaluate/provider.js";
+import { phaseForVerdict } from "../domain/phase.js";
 import type { ListingRow, Phase, PhaseHistoryRow, RawListing } from "../types.js";
 
 export function getByFbId(db: DB, fbId: string): ListingRow | undefined {
@@ -234,7 +235,7 @@ export function updateEvaluation(
   const row = getByFbId(db, fbId);
   const keepPhase = row ? MANUAL_PHASES.has(row.phase) : false;
   const ts = nowIso();
-  const newPhase: Phase = ev.verdict === "candidate" ? "candidate" : "rejected";
+  const newPhase: Phase = phaseForVerdict(ev.verdict);
   const tx = db.transaction(() => {
     db.prepare(
       `UPDATE listings SET
@@ -315,7 +316,7 @@ export function setEvaluation(
   model: string,
   usage?: EvalUsage | null,
 ): Phase {
-  const phase: Phase = ev.verdict === "candidate" ? "candidate" : "rejected";
+  const phase: Phase = phaseForVerdict(ev.verdict);
   const ts = nowIso();
   const tx = db.transaction(() => {
     const prev = getByFbId(db, fbId);
