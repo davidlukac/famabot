@@ -40,6 +40,7 @@ https://www.facebook.com/marketplace/item/.../
 - [Freshness and poll frequency](#freshness-and-poll-frequency)
 - [Dedup and re-evaluation](#dedup-and-re-evaluation)
 - [Notes and limitations](#notes-and-limitations)
+- [Contributing](#contributing)
 
 ## Why
 
@@ -355,6 +356,12 @@ is the default there.)
   It scrapes a platform that actively tries to prevent scraping — expect to tune the pacing for
   your own account's risk tolerance, and don't be surprised if Facebook's DOM/GraphQL shape
   drifts and needs a selector fix.
+
+## Contributing
+
+Issues and PRs are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for how
+to run the checks locally before opening one. See [`CHANGELOG.md`](CHANGELOG.md)
+for what's changed release to release.
 
 ## License
 
