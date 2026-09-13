@@ -1,7 +1,7 @@
 import type { Page, Response } from "playwright";
 import type { Criteria, RawListing, Search } from "../types.js";
 import { log } from "../log.js";
-import { PACE, pause } from "../pace.js";
+import { PACE, pause, pickScrollRounds, shouldKeepScrolling } from "../pace.js";
 import { collectListings, idFromHref } from "./parse.js";
 import { extractExternalLinks } from "../shared/links.js";
 
@@ -140,12 +140,33 @@ export async function scrapeSearch(
           `set your Marketplace location by hand once via \`famabot login\`.`,
       );
     }
-    // Scroll slowly to trigger pagination requests.
-    for (let i = 0; i < PACE.scrollRounds && fromGraphql.size < cap; i++) {
+    // Scroll slowly to trigger pagination requests. Round count varies per
+    // poll (real users don't scroll the same amount every visit), and the
+    // loop gives up early once a few rounds in a row surface nothing new
+    // (mimics recognizing the same old listings and stopping).
+    const maxRounds = pickScrollRounds(PACE.scrollRoundsMin, PACE.scrollRoundsMax);
+    let staleStreak = 0;
+    let prevSize = fromGraphql.size;
+    for (
+      let i = 0;
+      shouldKeepScrolling({
+        round: i,
+        maxRounds,
+        size: fromGraphql.size,
+        cap,
+        staleStreak,
+        staleLimit: PACE.scrollStaleLimit,
+      });
+      i++
+    ) {
       await pause(PACE.scrollPauseMin, PACE.scrollPauseSpan);
       await page.mouse.wheel(0, 3000 + Math.random() * 2000);
+      const size = fromGraphql.size;
+      staleStreak = size > prevSize ? 0 : staleStreak + 1;
+      prevSize = size;
       log.debug(
-        `scroll ${i + 1}/${PACE.scrollRounds} — ${fromGraphql.size} listing(s)`,
+        `scroll ${i + 1}/${maxRounds} — ${size} listing(s)` +
+          (staleStreak > 0 ? ` (no new ones x${staleStreak})` : ""),
       );
     }
     await pause(PACE.settleMin, PACE.settleSpan);

@@ -3,6 +3,24 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0]
+
+### Added
+- Scroll behavior on the search results page now varies per poll instead of a
+  fixed count: a random number of scroll rounds in `FAMABOT_SCROLL_ROUNDS_MIN`/
+  `_MAX` (default 3-7), giving up early after `FAMABOT_SCROLL_STALE_LIMIT`
+  (default 2) consecutive rounds surface no new listing — closer to how a real
+  user scrolls than a bot doing the identical pattern every visit.
+
+### Changed
+- `FAMABOT_SCROLL_ROUNDS` (fixed count) is replaced by `FAMABOT_SCROLL_ROUNDS_MIN`/
+  `_MAX` (a range) — update `.env` if you had set the old variable, it's no
+  longer read.
+- Internal: split the three source files that had grown past 500 lines
+  (`evaluate/provider.ts`, `reporting/html.ts`, `cli.ts`) into focused modules
+  under `evaluate/provider/`, `reporting/html/`, and `commands/` — no behavior
+  change, pure reorganization.
+
 ## [0.2.0]
 
 ### Added

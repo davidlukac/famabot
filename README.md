@@ -306,12 +306,21 @@ provider is configured; until then it's ignored.
 The search URL always sends `sortBy=creation_time_descend`, and after scraping, the results
 are re-sorted by `posted_at` and only the newest `FAMABOT_LISTING_CAP` (20) are kept — so a
 poll always looks at the genuinely-newest listings even when FB's own ordering is "recommended"
-rather than chronological. Set `criteria.maxAgeDays` (snaps to FB's 1 / 7 / 30-day "Date
-listed" buckets) to drop everything older. The real lever for beating other buyers is **poll
-frequency** — 90 min is conservative; drop `FAMABOT_WATCH_INTERVAL_MIN` (or `watch -i`) to
-30–40 for a hot market, accepting a bit more ban risk, or 20–25 for a short intense push (not
-recommended as a permanent setting). (`browse --sort fresh` is the report-side equivalent and
-is the default there.)
+rather than chronological. If a search regularly has more active matches than the cap, raise
+`FAMABOT_LISTING_CAP`, and likely `FAMABOT_SCROLL_ROUNDS_MAX` too (see below) — otherwise the
+scroll pass may never surface enough unique listings to fill the higher cap. Set
+`criteria.maxAgeDays` (snaps to FB's 1 / 7 / 30-day "Date listed" buckets) to drop everything
+older. The real lever for beating other buyers is **poll frequency** — 90 min is conservative;
+drop `FAMABOT_WATCH_INTERVAL_MIN` (or `watch -i`) to 30–40 for a hot market, accepting a bit
+more ban risk, or 20–25 for a short intense push (not recommended as a permanent setting).
+(`browse --sort fresh` is the report-side equivalent and is the default there.)
+
+Each poll scrolls the results page a random number of times in
+`[FAMABOT_SCROLL_ROUNDS_MIN, FAMABOT_SCROLL_ROUNDS_MAX]` (default 3-7) rather than a fixed
+count every time, and gives up early once `FAMABOT_SCROLL_STALE_LIMIT` (default 2) consecutive
+scrolls surface no new listing — closer to how a real user scrolls a variable amount and stops
+once they recognize the same old listings, rather than a bot doing an identical scroll pattern
+on every visit forever.
 
 ## Dedup and re-evaluation
 

@@ -4,3 +4,4 @@ dist/
 .env
 searches.yaml
 *.log
+.claude/
