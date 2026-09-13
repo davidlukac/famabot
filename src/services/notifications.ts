@@ -32,8 +32,12 @@ export async function pushCandidates(
       );
       continue;
     }
-    await notifyCandidate(candidateMsg(c), ctx);
-    markNotified(db, c.fb_id);
+    const sent = await notifyCandidate(candidateMsg(c), ctx);
+    if (sent) markNotified(db, c.fb_id);
+    else
+      log.warn(
+        `[notify] all backends failed for ${c.fb_id} — will retry on the next \`famabot notify\` or poll`,
+      );
   }
 }
 
@@ -45,7 +49,11 @@ export async function pushChanged(
   if (!notifyEnabled()) return;
   for (const c of changedSinceNotified(db)) {
     if (!c.notified_at) continue; // never notified at all -> handled elsewhere
-    await notifyCandidate(candidateMsg(c, "↻ updated: "), ctx);
-    markNotified(db, c.fb_id);
+    const sent = await notifyCandidate(candidateMsg(c, "↻ updated: "), ctx);
+    if (sent) markNotified(db, c.fb_id);
+    else
+      log.warn(
+        `[notify] all backends failed for ${c.fb_id} (changed) — will retry next poll`,
+      );
   }
 }

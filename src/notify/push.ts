@@ -57,22 +57,34 @@ export function candidateMsg(c: ListingRow, prefix = ""): CandidateMsg {
 
 const ascii = (s: string) => s.replace(/[^\x20-\x7E]/g, "").trim();
 
-/** Fire all configured notification backends for one candidate. Never throws. */
+/**
+ * Fire all configured notification backends for one candidate. Never throws.
+ * Returns whether at least one backend actually succeeded — callers should
+ * only record the listing as notified when this is true, so a transient
+ * failure (network blip, rate limit) can be retried later (`famabot notify`)
+ * instead of being silently and permanently dropped.
+ */
 export async function notifyCandidate(
   msg: CandidateMsg,
   ctx?: BrowserContext,
-): Promise<void> {
+): Promise<boolean> {
+  let sent = false;
   for (const b of backends()) {
     try {
       if (b === "ntfy") await sendNtfy(msg);
       else if (b === "telegram") await sendTelegram(msg);
       else if (b === "command") await sendCommand(msg);
       else if (b === "messenger") await sendMessenger(msg, ctx);
-      else log.warn(`notify: unknown backend "${b}"`);
+      else {
+        log.warn(`notify: unknown backend "${b}"`);
+        continue;
+      }
+      sent = true;
     } catch (err) {
       log.warn(`notify(${b}) failed: ${(err as Error).message}`);
     }
   }
+  return sent;
 }
 
 const htmlEsc = (s: string) =>

@@ -55,8 +55,9 @@ export function registerNotifyCommands(program: Command): void {
             `  ${score}  ${row.currency ?? ""}${row.price ?? "?"}  ${row.title ?? ""}  ${row.url}`,
           );
           if (opts.dryRun) continue;
-          await notifyCandidate(candidateMsg(row, prefix));
-          markNotified(db, row.fb_id);
+          const sent = await notifyCandidate(candidateMsg(row, prefix));
+          if (sent) markNotified(db, row.fb_id);
+          else console.warn(`  ↳ all backends failed for ${row.fb_id} — will retry`);
         }
         if (!opts.dryRun) console.log("sent.");
       },
