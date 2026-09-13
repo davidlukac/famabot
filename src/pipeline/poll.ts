@@ -4,11 +4,9 @@ import type { DB } from "../db/index.js";
 import type { Search, ListingRow } from "../types.js";
 import {
   applyRecheck,
-  changedSinceNotified,
   getByFbId,
   insertListing,
   isReevalEligible,
-  markNotified,
   needingReeval,
   queryListings,
   setAvailability,
@@ -24,7 +22,7 @@ import { ensureLoggedIn } from "../scrape/browser.js";
 import { buildSearchUrl, scrapeDetail, scrapeSearch } from "../scrape/marketplace.js";
 import { EVAL_MODEL, evaluateListing, toListingInput } from "../evaluate/evaluator.js";
 import { renderCandidatesTable } from "../notify/cli.js";
-import { candidateMsg, notifyCandidate, notifyEnabled } from "../notify/push.js";
+import { pushCandidates, pushChanged } from "../services/notifications.js";
 
 export interface PollResult {
   scraped: number;
@@ -325,42 +323,5 @@ async function recheckTracked(
     } else {
       log.debug(`recheck ${row.fb_id}: unchanged`);
     }
-  }
-}
-
-/** Only push candidates at/above this fit score (0 = push all). */
-function minNotifyScore(): number {
-  const v = Number(process.env.FAMABOT_MIN_NOTIFY_SCORE);
-  return Number.isFinite(v) && v > 0 ? v : 0;
-}
-
-/** Notify for brand-new candidates (once each), above the score floor. */
-async function pushCandidates(
-  db: DB,
-  ctx: BrowserContext,
-  candidates: ListingRow[],
-): Promise<void> {
-  if (!notifyEnabled()) return;
-  const floor = minNotifyScore();
-  for (const c of candidates) {
-    if (c.notified_at) continue;
-    if ((c.eval_score ?? 0) < floor) {
-      log.info(
-        `[notify] skip ${c.fb_id} — fit ${(c.eval_score ?? 0).toFixed(2)} < ${floor} (in pipeline, not pushed)`,
-      );
-      continue;
-    }
-    await notifyCandidate(candidateMsg(c), ctx);
-    markNotified(db, c.fb_id);
-  }
-}
-
-/** Ping for tracked listings (candidate / contacted / …) that changed since last notified. */
-async function pushChanged(db: DB, ctx: BrowserContext): Promise<void> {
-  if (!notifyEnabled()) return;
-  for (const c of changedSinceNotified(db)) {
-    if (!c.notified_at) continue; // never notified at all -> handled elsewhere
-    await notifyCandidate(candidateMsg(c, "↻ updated: "), ctx);
-    markNotified(db, c.fb_id);
   }
 }
