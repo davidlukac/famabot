@@ -24,13 +24,9 @@ import { serve } from "./serve.js";
 import { scrapeDetail } from "./scrape/marketplace.js";
 import { assertTransition, isPhase } from "./pipeline/phases.js";
 import { renderListTable } from "./notify/cli.js";
-import {
-  renderBrowse,
-  selectItems,
-  writeHtml,
-  type BrowseFilters,
-  type SortField,
-} from "./notify/browse.js";
+import { selectItems, type BrowseFilters, type SortField } from "./reporting/query.js";
+import { writeHtml } from "./reporting/html.js";
+import { renderBrowse } from "./reporting/terminal.js";
 import { EVAL_MODEL } from "./evaluate/evaluator.js";
 import { evaluateStoreAndNotify } from "./services/evaluation-service.js";
 import type { Phase } from "./types.js";

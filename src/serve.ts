@@ -2,13 +2,8 @@ import { createServer } from "node:http";
 import type { DB } from "./db/index.js";
 import { queryListings } from "./db/listings.js";
 import { log } from "./log.js";
-import {
-  distinctSearches,
-  pageShell,
-  renderRows,
-  selectItems,
-  type SortField,
-} from "./notify/browse.js";
+import { distinctSearches, selectItems, type SortField } from "./reporting/query.js";
+import { pageShell, renderRows } from "./reporting/html.js";
 
 export interface ServeOpts {
   port: number;
