@@ -193,9 +193,11 @@ const MANUAL_PHASES = new Set<Phase>(["contacted", "visit_scheduled", "visited"]
  * changes isn't worth the tokens.
  */
 /**
- * Same eligibility rule as `needingReeval`'s WHERE clause, for checking a single
- * row right after a recheck detects a change — so a re-eval can be dispatched
- * immediately instead of waiting for the next `needingReeval` sweep.
+ * Whether a listing is worth spending another eval call on: skips the user's
+ * final calls (accepted/declined), a hard-rejected listing that wasn't even
+ * close (score < 0.3), and anything no longer live. The single copy of this
+ * rule — `needingReeval` used to re-express it as SQL; now it just filters
+ * with this after the cheap, purely-timestamp-based DB query below.
  */
 export function isReevalEligible(row: ListingRow): boolean {
   if (row.availability !== "active") return false;
@@ -205,18 +207,20 @@ export function isReevalEligible(row: ListingRow): boolean {
 }
 
 export function needingReeval(db: DB, limit: number): ListingRow[] {
-  return db
+  // Only the timestamp condition (a real change since the last eval) is left
+  // to SQL — phase/score/availability eligibility is `isReevalEligible`'s job,
+  // applied after, so there's one copy of that rule instead of two. Table is
+  // small enough that fetching everything with a pending change and filtering
+  // in JS before slicing to `limit` is not a real cost.
+  const pending = db
     .prepare(
       `SELECT * FROM listings
-       WHERE availability = 'active'
-         AND phase NOT IN ('accepted','declined')
-         AND (phase <> 'rejected' OR COALESCE(eval_score,0) >= 0.3)
-         AND last_changed_at IS NOT NULL
+       WHERE last_changed_at IS NOT NULL
          AND (evaluated_at IS NULL OR last_changed_at > evaluated_at)
-       ORDER BY last_changed_at ASC
-       LIMIT ?`,
+       ORDER BY last_changed_at ASC`,
     )
-    .all(limit) as ListingRow[];
+    .all() as ListingRow[];
+  return pending.filter(isReevalEligible).slice(0, limit);
 }
 
 /**
