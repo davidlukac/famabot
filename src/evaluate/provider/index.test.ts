@@ -5,7 +5,7 @@ import {
   sumUsage,
   tieredCost,
   EvalProviderError,
-} from "./provider.js";
+} from "./index.js";
 
 test("createEvalProvider defaults to claude-cli with a small/fast model", () => {
   const p = createEvalProvider({});

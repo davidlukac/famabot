@@ -1,7 +1,7 @@
 import type { DB } from "./index.js";
 import { nowIso } from "./index.js";
 import type { Evaluation } from "../evaluate/evaluator.js";
-import type { EvalUsage } from "../evaluate/provider.js";
+import type { EvalUsage } from "../evaluate/provider/index.js";
 import { phaseForVerdict } from "../domain/phase.js";
 import type { ListingRow, Phase, PhaseHistoryRow, RawListing } from "../types.js";
 

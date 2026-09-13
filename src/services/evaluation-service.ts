@@ -3,7 +3,7 @@ import type { DB } from "../db/index.js";
 import { getByFbId, setEvaluation, updateEvaluation } from "../db/listings.js";
 import type { Evaluation } from "../evaluate/evaluator.js";
 import { EVAL_MODEL, evaluateListing, toListingInput } from "../evaluate/evaluator.js";
-import type { EvalUsage } from "../evaluate/provider.js";
+import type { EvalUsage } from "../evaluate/provider/index.js";
 import { log } from "../log.js";
 import type { Phase, Search } from "../types.js";
 import { pushCandidates } from "./notifications.js";

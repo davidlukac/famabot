@@ -4,7 +4,7 @@ import { log } from "../log.js";
 import { cleanListingText } from "../scrape/clean.js";
 import { extractExternalLinks } from "../shared/links.js";
 import { buildSystemPrompt } from "./prompt.js";
-import { getEvalProvider, sumUsage, type EvalUsage } from "./provider.js";
+import { getEvalProvider, sumUsage, type EvalUsage } from "./provider/index.js";
 import { extractJson } from "./runner.js";
 
 /** Identifier for the active evaluator backend — logged and stored per listing. */
