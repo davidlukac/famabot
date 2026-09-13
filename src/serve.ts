@@ -3,7 +3,7 @@ import type { DB } from "./db/index.js";
 import { queryListings } from "./db/listings.js";
 import { log } from "./log.js";
 import { distinctSearches, selectItems, type SortField } from "./reporting/query.js";
-import { pageShell, renderRows } from "./reporting/html.js";
+import { pageShell, renderRows } from "./reporting/html/index.js";
 
 export interface ServeOpts {
   port: number;
