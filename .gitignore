@@ -4,4 +4,4 @@ dist/
 .env
 searches.yaml
 *.log
-.claude/
+.claude/scheduled_tasks.lock
