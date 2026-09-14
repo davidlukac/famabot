@@ -26,8 +26,16 @@ https://www.facebook.com/marketplace/item/.../
 ```
 *(an actual notification, sent to Telegram by famabot mid-poll — see [Candidate notifications](#candidate-notifications))*
 
+> **⚠️ Educational/personal use only, at your own risk.** Scraping Facebook Marketplace
+> violates Facebook's Terms of Service — this can get your account checkpoint-restricted or
+> disabled, with no warning and no recourse. famabot is not affiliated with Meta/Facebook.
+> The evaluator is an LLM and can be wrong — treat every candidate as "worth a human look,"
+> not a verified recommendation. Read [`DISCLAIMER.md`](DISCLAIMER.md) before running this
+> against your own account.
+
 ## Contents
 
+- [Disclaimer](#disclaimer)
 - [Why](#why)
 - [How it works](#how-it-works)
 - [Quickstart](#quickstart)
@@ -41,6 +49,20 @@ https://www.facebook.com/marketplace/item/.../
 - [Dedup and re-evaluation](#dedup-and-re-evaluation)
 - [Notes and limitations](#notes-and-limitations)
 - [Contributing](#contributing)
+
+## Disclaimer
+
+Scraping Facebook Marketplace violates
+[Facebook's Terms of Service](https://www.facebook.com/terms.php) — realistic consequences
+include your account being checkpoint-restricted or permanently disabled, at Facebook's
+discretion and without warning. This is an independent, unofficial project, not affiliated
+with or endorsed by Meta/Facebook, built and published for **educational, experimental, and
+personal use only** — one person, on their own account, for their own search. It comes with
+no warranty ([MIT license](LICENSE)) and no accuracy guarantee: the evaluator is an LLM and
+can be wrong, so treat every `candidate` as "worth a human look," never as a verified
+recommendation, and verify anything yourself before acting on it. See
+[`DISCLAIMER.md`](DISCLAIMER.md) for the full terms — read it before pointing this at a
+Facebook account you care about.
 
 ## Why
 
@@ -343,10 +365,11 @@ on every visit forever.
 
 ## Notes and limitations
 
-- Scraping Marketplace is against Facebook's Terms of Service, and its page/GraphQL structure
-  changes without notice. The scraper tries GraphQL-response capture first and falls back to
-  DOM parsing; the raw search payload is stored in `listings.raw_json` for re-parsing if the
-  format shifts.
+- Scraping Marketplace is against Facebook's Terms of Service — see
+  [`DISCLAIMER.md`](DISCLAIMER.md) for what that actually risks. Separately, Facebook's page/
+  GraphQL structure changes without notice: the scraper tries GraphQL-response capture first
+  and falls back to DOM parsing; the raw search payload is stored in `listings.raw_json` for
+  re-parsing if the format shifts.
 - **Pace is deliberately slow** and built for 24/7 background use: searches run in random
   order, ~20 listings each, a randomized ~30s gap between detail-page opens, a ~2 min gap
   between searches, tens of minutes between polls. All tunable via `FAMABOT_*` env vars (see
