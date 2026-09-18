@@ -206,9 +206,12 @@ that listing.
 During development, prefix with `npm run dev --` (e.g. `npm run dev -- list`). After
 `npm run build`, run `node dist/cli.js …` or link the `famabot` bin.
 
-`npm test` runs the unit tests (`node --test`), `npm run typecheck` runs `tsc --noEmit`,
-`npm run lint` runs ESLint, and `npm run format` / `format:check` run Prettier. All four run
-in CI on every push/PR to `main` (`.github/workflows/ci.yml`, Node 22.x and 24.x).
+`npm test` runs the unit tests (`node --test`), `npm run test:coverage` runs the same tests
+with Node's built-in coverage (`--experimental-test-coverage`) and fails if line/branch/function
+coverage drops below 75%/70%/65%, `npm run typecheck` runs `tsc --noEmit`, `npm run lint` runs
+ESLint, and `npm run format` / `format:check` run Prettier. All of these run in CI on every
+push/PR to `main` (`.github/workflows/ci.yml`, Node 22.x and 24.x; CI runs `test:coverage`
+rather than plain `test`).
 
 ## Candidate notifications
 
