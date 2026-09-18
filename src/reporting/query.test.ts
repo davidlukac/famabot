@@ -43,6 +43,7 @@ function row(overrides: Partial<ListingRow> = {}): ListingRow {
     evaluated_at: "2026-01-01T00:00:00.000Z",
     phase_updated_at: null,
     notes: null,
+    telegram_message_id: null,
     ...overrides,
   };
 }

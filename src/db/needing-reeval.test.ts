@@ -66,21 +66,32 @@ test("needingReeval: rejected at/above 0.3 is a near-miss and included", () => {
   assert.ok(rows.some((r) => r.fb_id === "b2"));
 });
 
-test("needingReeval: accepted/declined are never returned, even with a pending change", () => {
+test("needingReeval: a resolved acquisition outcome is never returned, even with a pending change", () => {
   insertRow({
     fb_id: "c1",
-    phase: "accepted",
+    phase: "acquisition_failed",
     last_changed_at: "2026-01-02T00:00:00.000Z",
     evaluated_at: "2026-01-01T00:00:00.000Z",
   });
   insertRow({
     fb_id: "c2",
-    phase: "declined",
+    phase: "acquired_stop",
     last_changed_at: "2026-01-02T00:00:00.000Z",
     evaluated_at: "2026-01-01T00:00:00.000Z",
   });
   const rows = needingReeval(db, 50);
   assert.ok(!rows.some((r) => r.fb_id === "c1" || r.fb_id === "c2"));
+});
+
+test("needingReeval: accepted (still in progress) with a pending change is returned", () => {
+  insertRow({
+    fb_id: "c3",
+    phase: "accepted",
+    last_changed_at: "2026-01-02T00:00:00.000Z",
+    evaluated_at: "2026-01-01T00:00:00.000Z",
+  });
+  const rows = needingReeval(db, 50);
+  assert.ok(rows.some((r) => r.fb_id === "c3"));
 });
 
 test("needingReeval: unavailable listings are excluded regardless of phase", () => {

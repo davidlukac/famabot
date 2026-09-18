@@ -98,7 +98,7 @@ document.getElementById('searchGrp').addEventListener('change',apply);
   };
 });
 
-var ACTIVE=['new','candidate','contacted','visit_scheduled','visited','accepted'];
+var ACTIVE=['new','candidate','accepted'];
 [].forEach.call(document.querySelectorAll('[data-preset-phase]'),function(b){
   b.onclick=function(){
     var m=b.dataset.presetPhase;
@@ -179,7 +179,60 @@ function renderModal(tr){
 
   if(d.description){var ds=h('div',null);ds.appendChild(h('div','sec','Listing description'));ds.appendChild(h('div','desc',d.description));body.appendChild(ds);}
 
+  body.appendChild(renderActions(d));
+
   ov.hidden=false; ov.scrollTop=0;
+}
+
+/* ---- workflow action buttons ---- */
+// Mirrors src/pipeline/phases.ts TRANSITIONS + src/domain/candidate-actions.ts —
+// only for enabling the right buttons; the server re-validates regardless.
+var ACTIONS_BY_PHASE={
+  candidate:[['hold','Hold / comment',true],['reject','Reject',false],['accept','Accept',false]],
+  accepted:[
+    ['acquisition_failed','Acquisition failed',true],
+    ['acquisition_rejected','Acquisition rejected',true],
+    ['acquired_continue','Acquired — continue searching',false],
+    ['acquired_stop','Acquired — stop searching',false]
+  ]
+};
+function renderActions(d){
+  var wrap=h('div','wfactions');
+  var avail=ACTIONS_BY_PHASE[d.phase];
+  if(!avail){wrap.appendChild(h('div','sec','Workflow'));wrap.appendChild(h('div','muted','no actions from phase '+String(d.phase).replace(/_/g,' ')));return wrap;}
+  wrap.appendChild(h('div','sec','Workflow'));
+  var ta=document.createElement('textarea');
+  ta.className='wfcomment'; ta.rows=2; ta.placeholder='comment (feeds future recommendations)…';
+  wrap.appendChild(ta);
+  var btnRow=h('div','wfbtns');
+  var status=h('span','wfstatus');
+  avail.forEach(function(a){
+    var action=a[0], label=a[1], required=a[2];
+    var btn=document.createElement('button');
+    btn.type='button'; btn.className='btn'; btn.textContent=label;
+    btn.onclick=function(){
+      var comment=ta.value.trim();
+      if(required && !comment){status.textContent='comment required for '+label;status.className='wfstatus wferr';return;}
+      btn.disabled=true; status.textContent='working…'; status.className='wfstatus';
+      fetch('/listings/'+encodeURIComponent(d.fbId)+'/actions/'+action,{
+        method:'POST', headers:{'content-type':'application/json'},
+        body:JSON.stringify({comment:comment||null})
+      }).then(function(r){
+        if(!r.ok) return r.text().then(function(t){throw new Error(t||('HTTP '+r.status));});
+        return r.json();
+      }).then(function(res){
+        status.textContent=res.fromPhase+' → '+(res.toPhase||res.fromPhase);
+        status.className='wfstatus wfok';
+        setTimeout(function(){location.reload();},600);
+      }).catch(function(e){
+        btn.disabled=false; status.textContent=e.message; status.className='wfstatus wferr';
+      });
+    };
+    btnRow.appendChild(btn);
+  });
+  wrap.appendChild(btnRow);
+  wrap.appendChild(status);
+  return wrap;
 }
 function closeModalUI(){ov.hidden=true;curRow=null;openedByPush=false;}
 function stripHash(){return location.pathname+location.search;}

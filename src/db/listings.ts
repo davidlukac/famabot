@@ -3,7 +3,13 @@ import { nowIso } from "./index.js";
 import type { Evaluation } from "../evaluate/evaluator.js";
 import type { EvalUsage } from "../evaluate/provider/index.js";
 import { phaseForVerdict } from "../domain/phase.js";
-import type { ListingRow, Phase, PhaseHistoryRow, RawListing } from "../types.js";
+import type {
+  ListingRow,
+  Phase,
+  PhaseActor,
+  PhaseHistoryRow,
+  RawListing,
+} from "../types.js";
 
 export function getByFbId(db: DB, fbId: string): ListingRow | undefined {
   return db.prepare("SELECT * FROM listings WHERE fb_id = ?").get(fbId) as
@@ -184,24 +190,30 @@ export function applyRecheck(
   return bits.join(", ");
 }
 
-const MANUAL_PHASES = new Set<Phase>(["contacted", "visit_scheduled", "visited"]);
+/** Phases the user has manually advanced to, once evaluator-owned (new/candidate)
+ *  — `accepted` is "pursuing it myself," still in progress, so re-evaluating it
+ *  (e.g. after a price drop) must not clobber that manual progress with a fresh
+ *  candidate/rejected verdict. */
+const MANUAL_PHASES = new Set<Phase>(["accepted"]);
+
+/** The user's final call on a listing — an acquisition outcome. Never re-evaluated. */
+const RESOLVED_PHASES = new Set<Phase>([
+  "acquisition_failed",
+  "acquisition_rejected",
+  "acquired_continue",
+  "acquired_stop",
+]);
 
 /**
- * Listings edited since they were last evaluated — worth another look. `accepted`
- * / `declined` are the user's final call and never re-evaluated. `rejected` is
- * re-evaluated only when it was a near-miss (score >= 0.3) — a hard no that
- * changes isn't worth the tokens.
- */
-/**
  * Whether a listing is worth spending another eval call on: skips the user's
- * final calls (accepted/declined), a hard-rejected listing that wasn't even
- * close (score < 0.3), and anything no longer live. The single copy of this
- * rule — `needingReeval` used to re-express it as SQL; now it just filters
- * with this after the cheap, purely-timestamp-based DB query below.
+ * final calls (any resolved acquisition outcome), a hard-rejected listing that
+ * wasn't even close (score < 0.3), and anything no longer live. The single
+ * copy of this rule — `needingReeval` used to re-express it as SQL; now it
+ * just filters with this after the cheap, purely-timestamp-based DB query below.
  */
 export function isReevalEligible(row: ListingRow): boolean {
   if (row.availability !== "active") return false;
-  if (row.phase === "accepted" || row.phase === "declined") return false;
+  if (RESOLVED_PHASES.has(row.phase)) return false;
   if (row.phase === "rejected" && (row.eval_score ?? 0) < 0.3) return false;
   return true;
 }
@@ -226,8 +238,8 @@ export function needingReeval(db: DB, limit: number): ListingRow[] {
 /**
  * Re-score a listing after a change. Updates the eval fields + evaluated_at.
  * Only re-sets the phase for evaluator-owned phases (new / candidate / rejected);
- * for a listing you've manually advanced (contacted, …) the phase is left alone
- * so your pipeline progress is never clobbered.
+ * for a listing you've manually advanced (accepted) the phase is left alone so
+ * your acquisition progress is never clobbered.
  */
 export function updateEvaluation(
   db: DB,
@@ -270,8 +282,8 @@ export function updateEvaluation(
         "UPDATE listings SET phase = ?, phase_updated_at = ? WHERE fb_id = ?",
       ).run(newPhase, ts, fbId);
       db.prepare(
-        `INSERT INTO phase_history (fb_id, from_phase, to_phase, note, at)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO phase_history (fb_id, from_phase, to_phase, note, actor, at)
+         VALUES (?, ?, ?, ?, 'system', ?)`,
       ).run(fbId, row.phase, newPhase, "re-eval after change", ts);
     }
   });
@@ -287,7 +299,7 @@ export function changedSinceNotified(db: DB): ListingRow[] {
   return db
     .prepare(
       `SELECT * FROM listings
-       WHERE phase IN ('candidate','contacted','visit_scheduled','visited')
+       WHERE phase IN ('candidate','accepted')
          AND last_changed_at IS NOT NULL
          AND (notified_at IS NULL OR last_changed_at > notified_at)`,
     )
@@ -296,7 +308,7 @@ export function changedSinceNotified(db: DB): ListingRow[] {
 
 /**
  * Listings worth re-opening to catch closures / edits: the ones you're actually
- * pursuing (candidate + manually advanced), stalest first. `new` is excluded —
+ * pursuing (candidate + accepted/in-progress), stalest first. `new` is excluded —
  * it was just fetched and gets evaluated the same poll; `rejected` is excluded
  * as not worth the request budget.
  */
@@ -305,7 +317,7 @@ export function trackedForRecheck(db: DB, limit: number): ListingRow[] {
     .prepare(
       `SELECT * FROM listings
        WHERE availability = 'active'
-         AND phase IN ('candidate','contacted','visit_scheduled','visited')
+         AND phase IN ('candidate','accepted')
        ORDER BY last_seen_at ASC
        LIMIT ?`,
     )
@@ -351,8 +363,8 @@ export function setEvaluation(
       fbId,
     );
     db.prepare(
-      `INSERT INTO phase_history (fb_id, from_phase, to_phase, note, at)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO phase_history (fb_id, from_phase, to_phase, note, actor, at)
+       VALUES (?, ?, ?, ?, 'evaluator', ?)`,
     ).run(fbId, prev?.phase ?? null, phase, "evaluator", ts);
   });
   tx();
@@ -364,6 +376,7 @@ export function setPhase(
   fbId: string,
   toPhase: Phase,
   note: string | null,
+  actor: PhaseActor = "user",
 ): void {
   const ts = nowIso();
   const tx = db.transaction(() => {
@@ -372,9 +385,9 @@ export function setPhase(
       "UPDATE listings SET phase = ?, phase_updated_at = ? WHERE fb_id = ?",
     ).run(toPhase, ts, fbId);
     db.prepare(
-      `INSERT INTO phase_history (fb_id, from_phase, to_phase, note, at)
-       VALUES (?, ?, ?, ?, ?)`,
-    ).run(fbId, prev?.phase ?? null, toPhase, note, ts);
+      `INSERT INTO phase_history (fb_id, from_phase, to_phase, note, actor, at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(fbId, prev?.phase ?? null, toPhase, note, actor, ts);
   });
   tx();
 }
@@ -415,4 +428,56 @@ export function historyFor(db: DB, fbId: string): PhaseHistoryRow[] {
   return db
     .prepare("SELECT * FROM phase_history WHERE fb_id = ? ORDER BY id ASC")
     .all(fbId) as PhaseHistoryRow[];
+}
+
+/**
+ * Log user feedback on a candidate without changing its phase — the "hold,
+ * still deciding" action. Recorded as a self-transition (`from_phase ===
+ * to_phase`) in `phase_history` so it shows up in `historyFor`/`show` and is
+ * picked up by `recentUserFeedback` below, same as a real transition's note.
+ */
+export function logFeedback(db: DB, fbId: string, note: string): void {
+  const row = getByFbId(db, fbId);
+  if (!row) throw new Error(`No listing ${fbId}`);
+  const ts = nowIso();
+  db.prepare(
+    `INSERT INTO phase_history (fb_id, from_phase, to_phase, note, actor, at)
+     VALUES (?, ?, ?, ?, 'user', ?)`,
+  ).run(fbId, row.phase, row.phase, note, ts);
+}
+
+/**
+ * The user's own comments on past candidates from a search (rejections,
+ * accepts, holds, acquisition outcomes — anything with a note), newest first.
+ * Fed into the evaluator's system prompt (`buildSystemPrompt`) so it learns
+ * what this user actually cares about beyond the static `criteria`, not just
+ * what happens to the one listing being re-evaluated.
+ */
+export function recentUserFeedback(db: DB, searchKey: string, limit = 20): string[] {
+  const rows = db
+    .prepare(
+      `SELECT h.note, h.to_phase FROM phase_history h
+       JOIN listings l ON l.fb_id = h.fb_id
+       WHERE l.search_key = ? AND h.actor = 'user' AND h.note IS NOT NULL AND h.note != ''
+       ORDER BY h.id DESC
+       LIMIT ?`,
+    )
+    .all(searchKey, limit) as { note: string; to_phase: string }[];
+  return rows.map((r) => `[${r.to_phase}] ${r.note}`);
+}
+
+export function setTelegramMessageId(db: DB, fbId: string, messageId: number): void {
+  db.prepare("UPDATE listings SET telegram_message_id = ? WHERE fb_id = ?").run(
+    messageId,
+    fbId,
+  );
+}
+
+export function getByTelegramMessageId(
+  db: DB,
+  messageId: number,
+): ListingRow | undefined {
+  return db
+    .prepare("SELECT * FROM listings WHERE telegram_message_id = ?")
+    .get(messageId) as ListingRow | undefined;
 }

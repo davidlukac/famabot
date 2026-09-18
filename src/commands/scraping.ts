@@ -3,6 +3,7 @@ import { loadConfig, loadSearches } from "../config.js";
 import { PACE, pause } from "../pace.js";
 import { openDb } from "../db/index.js";
 import { setAvailability, trackedForRecheck, applyRecheck } from "../db/listings.js";
+import { pauseSearch, pausedSearches, resumeSearch } from "../db/searches.js";
 import { interactiveLogin, launchContext } from "../scrape/browser.js";
 import { scrapeDetail } from "../scrape/marketplace.js";
 import { runPoll } from "../pipeline/poll.js";
@@ -131,5 +132,52 @@ export function registerScrapingCommands(program: Command): void {
         await ctx.close();
       }
       log.info(`recheck done — ${changed} changed, ${gone} gone`);
+    });
+
+  const search = program
+    .command("search")
+    .description(
+      "Pause/resume polling for a saved search (independent of searches.yaml).",
+    );
+
+  search
+    .command("pause")
+    .description("Stop polling a search — e.g. after 'acquired it, stop searching'.")
+    .argument("<key>")
+    .option("-r, --reason <text>", "why it's paused")
+    .action((key: string, opts: { reason?: string }) => {
+      const cfg = loadConfig();
+      const db = openDb(cfg.dbPath);
+      pauseSearch(db, key, opts.reason ?? null);
+      console.log(`${key}: paused`);
+    });
+
+  search
+    .command("resume")
+    .description("Resume polling a paused search.")
+    .argument("<key>")
+    .action((key: string) => {
+      const cfg = loadConfig();
+      const db = openDb(cfg.dbPath);
+      resumeSearch(db, key);
+      console.log(`${key}: resumed`);
+    });
+
+  search
+    .command("status")
+    .description("List currently paused searches.")
+    .action(() => {
+      const cfg = loadConfig();
+      const db = openDb(cfg.dbPath);
+      const paused = pausedSearches(db);
+      if (paused.length === 0) {
+        console.log("no searches paused.");
+        return;
+      }
+      for (const p of paused) {
+        console.log(
+          `${p.search_key}  paused ${p.paused_at}${p.reason ? `  (${p.reason})` : ""}`,
+        );
+      }
     });
 }

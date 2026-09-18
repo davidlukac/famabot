@@ -82,16 +82,27 @@ export interface RawListing {
 
 export type Availability = "active" | "unavailable" | "unknown";
 
-/** Pipeline phases. The first three are set by the evaluator; the rest are manual. */
+/**
+ * Pipeline phases. `new`/`candidate`/`rejected` are set by the evaluator; the
+ * rest are the user's manual acquisition workflow, general enough for any kind
+ * of marketplace item (not just rentals):
+ *   candidate  -> rejected | accepted
+ *   accepted   -> acquisition_failed | acquisition_rejected
+ *              -> acquired_continue | acquired_stop
+ * `accepted` means "I'll pursue this myself off-platform" — it is NOT a final
+ * call; the acquisition_… / acquired_… phases below are the terminal outcomes. See
+ * `src/pipeline/phases.ts` for the transition table and
+ * `src/domain/candidate-actions.ts` for the user-facing actions that drive it.
+ */
 export const PHASES = [
   "new",
   "candidate",
   "rejected",
-  "contacted",
-  "visit_scheduled",
-  "visited",
   "accepted",
-  "declined",
+  "acquisition_failed",
+  "acquisition_rejected",
+  "acquired_continue",
+  "acquired_stop",
 ] as const;
 export type Phase = (typeof PHASES)[number];
 
@@ -127,7 +138,12 @@ export interface ListingRow {
   evaluated_at: string | null;
   phase_updated_at: string | null;
   notes: string | null;
+  telegram_message_id: number | null;
 }
+
+/** Who caused a phase_history entry — lets the evaluator tell its own bookkeeping
+ *  apart from actual user feedback when building recommendation context. */
+export type PhaseActor = "user" | "evaluator" | "system";
 
 export interface PhaseHistoryRow {
   id: number;
@@ -135,5 +151,6 @@ export interface PhaseHistoryRow {
   from_phase: string | null;
   to_phase: string;
   note: string | null;
+  actor: PhaseActor;
   at: string;
 }

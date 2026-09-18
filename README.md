@@ -95,6 +95,54 @@ being found, not held until the whole poll finishes.
 Your manual phase changes are never overwritten by the evaluator — it only ever acts on
 listings still in `new`, or ones that changed since their last evaluation.
 
+## The acquisition workflow
+
+Once the evaluator flags a listing `candidate`, what happens next is general enough for any
+kind of marketplace item — not just a rental viewing:
+
+```
+new ──▶ candidate ──▶ rejected                      (flow stops)
+             │
+             └────▶ accepted   (you're pursuing it yourself, off-platform — not final)
+                        │
+                        ├──▶ acquisition_failed      (unavailable, no price match, couldn't meet)
+                        ├──▶ acquisition_rejected    (saw/met it and it didn't hold up)
+                        ├──▶ acquired_continue       (bought it — keep searching for more)
+                        └──▶ acquired_stop           (bought it — stop searching this saved search)
+```
+
+While a listing sits in `candidate`, `famabot hold <fbId> "<comment>"` logs feedback without
+changing phase — for "still deciding." Every transition's comment is remembered
+(`phase_history`) and fed back into the evaluator's prompt for that search's *future*
+candidates, so what you actually said when accepting/rejecting/holding shapes later verdicts,
+not just the static `criteria`.
+
+`acquired_stop` also pauses that search at the DB level (`famabot search pause/resume/status`)
+— `watch`/`poll` skip it immediately, no `searches.yaml` edit needed.
+
+| Command | Phase change |
+|---|---|
+| `famabot reject <fbId> [-n note]` | `candidate → rejected` |
+| `famabot hold <fbId> "<comment>"` | none — logs feedback |
+| `famabot accept <fbId> [-n note]` | `candidate → accepted` |
+| `famabot acquisition-failed <fbId> "<comment>"` | `accepted → acquisition_failed` |
+| `famabot acquisition-rejected <fbId> "<comment>"` | `accepted → acquisition_rejected` |
+| `famabot acquired-continue <fbId> [-n note]` | `accepted → acquired_continue` |
+| `famabot acquired-stop <fbId> [-n note]` | `accepted → acquired_stop`, pauses the search |
+
+Each is also available as a button + comment box in `famabot serve`'s row detail modal, and as
+a Telegram reply (see below) — all three drive the same `applyCandidateAction` service, so the
+rules (which comments are required, which transitions are legal) are enforced identically
+everywhere. The raw `famabot move <fbId> <phase> [-f]` / `famabot note` commands still work as
+an escape hatch for an arbitrary phase or a forced transition.
+
+> Upgrading from before this workflow existed: `contacted` / `visit_scheduled` / `visited` /
+> `declined` are retired and migrated automatically on first run (`contacted`/`visit_scheduled`/
+> `visited` → `accepted`, `declined` → `acquisition_rejected`). The old terminal meaning of
+> `accepted` ("fully acquired") is ambiguous under the new one ("pursuing"), so those rows
+> default to `acquired_continue` — review with `famabot list --phase acquired_continue` and
+> correct any that should be `acquired_stop`.
+
 ## Quickstart
 
 ```bash
@@ -127,11 +175,14 @@ then on. Re-run `login` if it expires or Facebook throws a checkpoint at it.
 | `famabot browse [filters] [--sort fresh] [--html [path]] [--open] [--all]` | Explore listings in the terminal (clickable titles) or as an HTML file. |
 | `famabot list [-p <phase>] [-s <search>] [--json]` | Compact pipeline table. |
 | `famabot show <fbId>` | One listing in full: fields, availability, links, reasoning, history. |
-| `famabot move <fbId> <phase> [-n "note"] [-f]` | Advance a phase. Illegal transitions are rejected unless `-f`. |
-| `famabot note <fbId> "text"` | Append a timestamped note. |
+| `famabot move <fbId> <phase> [-n "note"] [-f]` | Advance to an arbitrary phase (escape hatch). Illegal transitions are rejected unless `-f`. |
+| `famabot note <fbId> "text"` | Append a timestamped note (no phase change). |
+| `famabot reject / hold / accept / acquisition-failed / acquisition-rejected / acquired-continue / acquired-stop` | The acquisition workflow — see [above](#the-acquisition-workflow). |
+| `famabot search pause/resume/status [key]` | Pause/resume polling a saved search independent of `searches.yaml`. |
 | `famabot reevaluate [-p new] [-s <search>]` | Re-run the evaluator on stored listings. |
 | `famabot recheck [-n 20]` | Re-open tracked listings to catch closed / edited ones (also runs inside every poll). |
 | `famabot open <fbId>` | Open the listing URL in your browser. |
+| `famabot telegram-listen` | Long-poll Telegram for replies and apply them as workflow actions — see [below](#candidate-notifications). |
 
 **`famabot serve`** — the live report. Every column is named and click-to-sort (▲/▼ on the
 active one). Filter panel: **text search**, **min score**, **Status** (per-phase checkboxes +
@@ -178,6 +229,28 @@ Off by default. Set `FAMABOT_NOTIFY` to a comma-list of backends (see `.env.exam
 
 Each candidate is notified once (`notified_at` guards re-sends), dispatched as soon as its own
 evaluation completes — not batched until the whole poll finishes.
+
+### Acting from Telegram
+
+Run `famabot telegram-listen` alongside `watch` (same `nohup`/`pm2`/`tmux`/systemd treatment) to
+act on candidates without touching the CLI or the web UI. Two ways to reply:
+
+- **A slash command**, anywhere: `/accept <fbId> [comment]`, `/reject <fbId> [comment]`,
+  `/hold <fbId> <comment>`, `/acquisition-failed <fbId> <comment>`,
+  `/acquisition-rejected <fbId> <comment>`, `/acquired-continue <fbId> [comment]`,
+  `/acquired-stop <fbId> [comment]` — applied directly, no AI call needed. `<fbId>` accepts
+  either the bare id or a full listing URL (e.g. `/reject
+  https://www.facebook.com/marketplace/item/2052413975478510/ too far`). Send `/help` (or
+  `/start`) any time for the full list — it's also what you get back for an unrecognized
+  command or a message the bot can't otherwise resolve to a listing.
+- **Free text, as a reply** to the candidate's own notification message — e.g. just reply
+  "yeah let's go for it, price is right" to that message. famabot classifies the reply into an
+  action + comment using the same AI-provider pattern as the evaluator itself
+  (`FAMABOT_EVALUATOR`); a low-confidence or unparseable reply gets a clarifying question back
+  instead of a guess.
+
+Only messages from `FAMABOT_TELEGRAM_CHAT_ID` are honored — the same trust boundary as outbound
+notifications. Long-polling (`getUpdates`), so no public HTTPS endpoint or webhook is needed.
 
 ## Defining searches (searches.yaml)
 
@@ -354,12 +427,12 @@ on every visit forever.
   "12 people viewed" / "Listed 3h ago" is stripped) so only real edits count. Any change sets
   `last_changed_at`, and a re-evaluation is dispatched immediately.
 - **Re-evaluation.** For evaluator-owned phases (`new` / `candidate` / `rejected`) the verdict
-  and phase are updated. For a listing **you've** advanced (`contacted` …) the score/reasoning
-  are refreshed but the phase is left alone, and — if notifications are on — you get a
-  `↻ updated` ping.
+  and phase are updated. For a listing **you've** accepted (pursuing it yourself) the
+  score/reasoning are refreshed but the phase is left alone, and — if notifications are on — you
+  get a `↻ updated` ping. A resolved acquisition outcome is never re-evaluated.
 - **Listings that disappear.** Every poll re-opens up to `FAMABOT_RECHECK_PER_POLL` (default 8)
-  of the stalest listings you're pursuing (`candidate` + manually-advanced phases; `new`/
-  `rejected` are skipped). `famabot recheck -n 20` does a bigger batch on demand. If the page
+  of the stalest listings you're pursuing (`candidate` + `accepted`; `new`/`rejected`/resolved
+  outcomes are skipped). `famabot recheck -n 20` does a bigger batch on demand. If the page
   says sold/removed/unavailable (or redirects to the Marketplace home) the listing is marked
   `availability = unavailable` and hidden from `browse`/`serve` unless you pass `--all`.
 
@@ -375,7 +448,8 @@ on every visit forever.
   between searches, tens of minutes between polls. All tunable via `FAMABOT_*` env vars (see
   `.env.example`); the first poll is the slow one, steady-state polls have little to do. Run it
   with `npm run dev -- watch` (or the built `node dist/cli.js watch`) under `nohup`, `pm2`,
-  `tmux`, or a launchd/systemd unit.
+  `tmux`, or a launchd/systemd unit — and `telegram-listen` the same way alongside it if you
+  want to act on candidates from Telegram (see [Acting from Telegram](#acting-from-telegram)).
 - **Location:** set `criteria.lat` / `criteria.lng` (with `radiusKm`). Facebook only reliably
   scopes a Marketplace search by coordinates — a `/marketplace/<city>/` slug it doesn't
   recognise gets silently redirected to a generic, IP-based page with **all filters dropped**

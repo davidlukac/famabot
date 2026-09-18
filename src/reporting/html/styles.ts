@@ -90,10 +90,9 @@ export function pageStyles(live: boolean): string {
   .ph{display:inline-block;padding:2px 9px;border-radius:999px;font-size:10.5px;font-weight:600;
     background:var(--chip);color:var(--muted);text-transform:capitalize}
   .ph-candidate{background:color-mix(in srgb,var(--good) 16%,transparent);color:var(--good)}
-  .ph-contacted{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
-  .ph-visit_scheduled,.ph-visited{background:color-mix(in srgb,var(--violet) 18%,transparent);color:var(--violet)}
-  .ph-accepted{background:color-mix(in srgb,var(--good) 28%,transparent);color:var(--good)}
-  .ph-rejected,.ph-declined{color:var(--faint)}
+  .ph-accepted{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
+  .ph-acquired_continue,.ph-acquired_stop{background:color-mix(in srgb,var(--good) 28%,transparent);color:var(--good)}
+  .ph-rejected,.ph-acquisition_failed,.ph-acquisition_rejected{color:var(--faint)}
   .bd{display:inline-block;font-size:10px;padding:1px 4px;border-radius:4px;margin-right:5px}
   .bd-chg{background:color-mix(in srgb,var(--accent) 20%,transparent);color:var(--accent)}
   .bd-ext{background:color-mix(in srgb,var(--violet) 20%,transparent);color:var(--violet)}
@@ -135,5 +134,14 @@ export function pageStyles(live: boolean): string {
   .mopen{background:var(--accent);color:var(--accent-ink);border:0;border-radius:8px;
     padding:8px 14px;font:inherit;font-weight:600;cursor:pointer;text-decoration:none}
   .mnav{color:var(--muted);font-size:11px}
+
+  .wfactions{border-top:1px solid var(--border);padding-top:14px}
+  .wfcomment{width:100%;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;
+    padding:8px 10px;color:var(--text);font:inherit;resize:vertical;margin-bottom:9px}
+  .wfcomment:focus{outline:none;border-color:var(--accent)}
+  .wfbtns{display:flex;flex-wrap:wrap;gap:8px}
+  .wfstatus{display:block;margin-top:8px;font-size:12px;color:var(--muted)}
+  .wfstatus.wfok{color:var(--good)}
+  .wfstatus.wferr{color:var(--weak)}
 `;
 }

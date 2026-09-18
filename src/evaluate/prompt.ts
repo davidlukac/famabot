@@ -15,8 +15,14 @@ export const DEFAULT_PERSONA =
  * voice for this search only (falls back to FAMABOT_PERSONA, then the default) —
  * this is what lets a vehicle search sound like a gearhead and a rental search
  * sound like a buyer's agent, in the same run.
+ *
+ * `feedback` — the user's own accept/reject/hold/acquisition-outcome comments
+ * on past candidates from this same search (see `db/listings.ts`
+ * `recentUserFeedback`) — is appended as extra context so the verdict for the
+ * NEXT listing benefits from what they've actually said, not just the static
+ * `criteria`. Omitted entirely when there's none yet.
  */
-export function buildSystemPrompt(search: Search): string {
+export function buildSystemPrompt(search: Search, feedback?: string[]): string {
   const criteria: Criteria = search.criteria;
   const persona =
     search.persona?.trim() || process.env.FAMABOT_PERSONA?.trim() || DEFAULT_PERSONA;
@@ -78,6 +84,16 @@ export function buildSystemPrompt(search: Search): string {
   for (const n of criteria.niceToHaves) soft.push(n);
   if (criteria.notes) soft.push(criteria.notes.trim());
 
+  const feedbackSection = feedback?.length
+    ? [
+        "",
+        "Prior user feedback on candidates from this search (most recent first) —",
+        "weigh this alongside the criteria above; it reflects what the user has",
+        "actually said when accepting, rejecting, or commenting on past listings:",
+        ...feedback.map((f) => `  - ${f}`),
+      ]
+    : [];
+
   return [
     persona,
     "",
@@ -105,5 +121,6 @@ export function buildSystemPrompt(search: Search): string {
     "    in person, is a red flag.",
     "  - Extract structured fields into `extracted`; use null for anything not stated.",
     "  - `reasoning`: 2–4 sentences, specific to this listing.",
+    ...feedbackSection,
   ].join("\n");
 }

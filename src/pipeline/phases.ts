@@ -1,15 +1,24 @@
 import { PHASES, type Phase } from "../types.js";
 
-/** Allowed manual transitions. The evaluator handles new -> candidate/rejected. */
+/**
+ * Allowed manual transitions. The evaluator handles new -> candidate/rejected.
+ * `accepted` means "pursuing this myself off-platform" — not final — and
+ * resolves into exactly one of the four acquisition outcomes below.
+ */
 const TRANSITIONS: Record<Phase, Phase[]> = {
   new: ["candidate", "rejected"],
-  candidate: ["contacted", "rejected"],
-  contacted: ["visit_scheduled", "rejected"],
-  visit_scheduled: ["visited", "rejected"],
-  visited: ["accepted", "declined"],
+  candidate: ["rejected", "accepted"],
+  accepted: [
+    "acquisition_failed",
+    "acquisition_rejected",
+    "acquired_continue",
+    "acquired_stop",
+  ],
   rejected: [],
-  accepted: [],
-  declined: [],
+  acquisition_failed: [],
+  acquisition_rejected: [],
+  acquired_continue: [],
+  acquired_stop: [],
 };
 
 export function isPhase(v: string): v is Phase {

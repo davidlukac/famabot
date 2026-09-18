@@ -57,22 +57,28 @@ export function candidateMsg(c: ListingRow, prefix = ""): CandidateMsg {
 
 const ascii = (s: string) => s.replace(/[^\x20-\x7E]/g, "").trim();
 
-/**
- * Fire all configured notification backends for one candidate. Never throws.
- * Returns whether at least one backend actually succeeded — callers should
- * only record the listing as notified when this is true, so a transient
- * failure (network blip, rate limit) can be retried later (`famabot notify`)
- * instead of being silently and permanently dropped.
- */
+export interface NotifyResult {
+  /** Whether at least one backend actually succeeded — callers should only
+   *  record the listing as notified when this is true, so a transient
+   *  failure (network blip, rate limit) can be retried later
+   *  (`famabot notify`) instead of being silently and permanently dropped. */
+  sent: boolean;
+  /** The Telegram message id, if the `telegram` backend sent one — lets a
+   *  caller remember which message a future reply might be about. */
+  telegramMessageId: number | null;
+}
+
+/** Fire all configured notification backends for one candidate. Never throws. */
 export async function notifyCandidate(
   msg: CandidateMsg,
   ctx?: BrowserContext,
-): Promise<boolean> {
+): Promise<NotifyResult> {
   let sent = false;
+  let telegramMessageId: number | null = null;
   for (const b of backends()) {
     try {
       if (b === "ntfy") await sendNtfy(msg);
-      else if (b === "telegram") await sendTelegram(msg);
+      else if (b === "telegram") telegramMessageId = await sendTelegram(msg);
       else if (b === "command") await sendCommand(msg);
       else if (b === "messenger") await sendMessenger(msg, ctx);
       else {
@@ -84,7 +90,7 @@ export async function notifyCandidate(
       log.warn(`notify(${b}) failed: ${(err as Error).message}`);
     }
   }
-  return sent;
+  return { sent, telegramMessageId };
 }
 
 const htmlEsc = (s: string) =>
@@ -95,8 +101,12 @@ const htmlEsc = (s: string) =>
  * FAMABOT_TELEGRAM_CHAT_ID (your user id, or a group/channel id — the bot must be
  * a member). Get the chat id by messaging the bot once then reading
  * https://api.telegram.org/bot<token>/getUpdates.
+ *
+ * Returns the sent message's id, so a caller (`services/notifications.ts`) can
+ * remember which candidate it was about — `telegram-bot.ts` resolves a reply
+ * back to the right listing via that id (`listings.telegram_message_id`).
  */
-async function sendTelegram(m: CandidateMsg): Promise<void> {
+async function sendTelegram(m: CandidateMsg): Promise<number | null> {
   const token = process.env.FAMABOT_TELEGRAM_BOT_TOKEN;
   const chatId = process.env.FAMABOT_TELEGRAM_CHAT_ID;
   if (!token) throw new Error("FAMABOT_TELEGRAM_BOT_TOKEN not set");
@@ -123,6 +133,10 @@ async function sendTelegram(m: CandidateMsg): Promise<void> {
     throw new Error(`Telegram HTTP ${res.status} ${body.slice(0, 200)}`);
   }
   log.info(`notify: sent Telegram message (${m.title})`);
+  const payload = (await res.json().catch(() => null)) as {
+    result?: { message_id?: number };
+  } | null;
+  return payload?.result?.message_id ?? null;
 }
 
 async function sendNtfy(m: CandidateMsg): Promise<void> {

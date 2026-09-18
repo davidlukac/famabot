@@ -177,7 +177,7 @@ export function registerPipelineCommands(program: Command): void {
           );
           continue;
         }
-        // reeval:true so a manually-advanced phase (contacted, …) is preserved,
+        // reeval:true so a manually-advanced phase (accepted) is preserved,
         // same protection `poll` gives it — and shares the notify-on-candidate
         // behavior with poll instead of silently skipping it.
         const outcome = await evaluateStoreAndNotify(db, row.fb_id, search, {

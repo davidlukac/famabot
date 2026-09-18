@@ -1,11 +1,17 @@
 import type { Command } from "commander";
 import { loadConfig } from "../config.js";
 import { openDb } from "../db/index.js";
-import { changedSinceNotified, markNotified, queryListings } from "../db/listings.js";
+import {
+  changedSinceNotified,
+  markNotified,
+  queryListings,
+  setTelegramMessageId,
+} from "../db/listings.js";
 import { candidateMsg, notifyCandidate, notifyEnabled } from "../notify/push.js";
-import { initLogger } from "../log.js";
+import { runTelegramBot } from "../notify/telegram-bot.js";
+import { initLogger, log, logFilePath } from "../log.js";
 
-/** notify — push any candidate that hasn't been notified yet. */
+/** notify, telegram-listen — push candidates, and listen for Telegram replies. */
 export function registerNotifyCommands(program: Command): void {
   program
     .command("notify")
@@ -55,11 +61,29 @@ export function registerNotifyCommands(program: Command): void {
             `  ${score}  ${row.currency ?? ""}${row.price ?? "?"}  ${row.title ?? ""}  ${row.url}`,
           );
           if (opts.dryRun) continue;
-          const sent = await notifyCandidate(candidateMsg(row, prefix));
-          if (sent) markNotified(db, row.fb_id);
-          else console.warn(`  ↳ all backends failed for ${row.fb_id} — will retry`);
+          const result = await notifyCandidate(candidateMsg(row, prefix));
+          if (result.sent) {
+            markNotified(db, row.fb_id);
+            if (result.telegramMessageId != null) {
+              setTelegramMessageId(db, row.fb_id, result.telegramMessageId);
+            }
+          } else console.warn(`  ↳ all backends failed for ${row.fb_id} — will retry`);
         }
         if (!opts.dryRun) console.log("sent.");
       },
     );
+
+  program
+    .command("telegram-listen")
+    .description(
+      "Long-poll Telegram for replies (accept/reject/hold/…) and apply them. " +
+        "Safe to leave running 24/7 alongside `watch`.",
+    )
+    .action(async () => {
+      const cfg = loadConfig();
+      const db = openDb(cfg.dbPath);
+      initLogger({ file: cfg.logPath, verbose: cfg.verbose });
+      log.info(`telegram-listen started; logging to ${logFilePath()}`);
+      await runTelegramBot(db);
+    });
 }
