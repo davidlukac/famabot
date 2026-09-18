@@ -36,6 +36,7 @@ function row(overrides: Partial<ListingRow> = {}): ListingRow {
     evaluated_at: null,
     phase_updated_at: null,
     notes: null,
+    telegram_message_id: null,
     ...overrides,
   };
 }
@@ -44,9 +45,19 @@ test("isReevalEligible: candidate is eligible", () => {
   assert.equal(isReevalEligible(row({ phase: "candidate" })), true);
 });
 
-test("isReevalEligible: accepted/declined are the user's final call, never re-evaluated", () => {
-  assert.equal(isReevalEligible(row({ phase: "accepted" })), false);
-  assert.equal(isReevalEligible(row({ phase: "declined" })), false);
+test("isReevalEligible: accepted is still in progress, so it stays eligible", () => {
+  assert.equal(isReevalEligible(row({ phase: "accepted" })), true);
+});
+
+test("isReevalEligible: every acquisition outcome is the user's final call, never re-evaluated", () => {
+  for (const phase of [
+    "acquisition_failed",
+    "acquisition_rejected",
+    "acquired_continue",
+    "acquired_stop",
+  ] as const) {
+    assert.equal(isReevalEligible(row({ phase })), false, phase);
+  }
 });
 
 test("isReevalEligible: rejected only if it was a near-miss (score >= 0.3)", () => {
@@ -60,10 +71,4 @@ test("isReevalEligible: unavailable listings are skipped regardless of phase", (
     isReevalEligible(row({ phase: "candidate", availability: "unavailable" })),
     false,
   );
-});
-
-test("isReevalEligible: manually-advanced phases stay eligible", () => {
-  for (const phase of ["contacted", "visit_scheduled", "visited"] as const) {
-    assert.equal(isReevalEligible(row({ phase })), true, phase);
-  }
 });

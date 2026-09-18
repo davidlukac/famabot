@@ -5,6 +5,7 @@ import { loadConfig } from "./config.js";
 import { initLogger, log } from "./log.js";
 import { registerScrapingCommands } from "./commands/scraping.js";
 import { registerPipelineCommands } from "./commands/pipeline.js";
+import { registerCandidateCommands } from "./commands/candidate.js";
 import { registerReportingCommands } from "./commands/reporting.js";
 import { registerNotifyCommands } from "./commands/notify.js";
 
@@ -33,6 +34,7 @@ program
 
 registerScrapingCommands(program);
 registerPipelineCommands(program);
+registerCandidateCommands(program);
 registerReportingCommands(program);
 registerNotifyCommands(program);
 

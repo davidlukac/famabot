@@ -3,6 +3,32 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0]
+
+### Added
+- A general-purpose acquisition workflow, replacing the rental-specific
+  `contacted` / `visit_scheduled` / `visited` / `declined` phases: `candidate`
+  → `rejected` | `accepted`, then `accepted` → `acquisition_failed` |
+  `acquisition_rejected` | `acquired_continue` | `acquired_stop`. `accepted` now
+  means "pursuing it myself, off-platform" rather than a final call. Existing
+  DBs are migrated automatically on first run (old `accepted` rows default to
+  `acquired_continue` — review with `famabot list --phase acquired_continue`).
+- New CLI commands driving the workflow: `reject`, `hold`, `accept`,
+  `acquisition-failed`, `acquisition-rejected`, `acquired-continue`,
+  `acquired-stop`, plus `search pause/resume/status` (a DB-backed override that
+  stops polling a search independent of `searches.yaml`, used by
+  `acquired-stop`).
+- The web UI (`famabot serve`) gained action buttons + a comment box in the row
+  detail modal, backed by a new `POST /listings/:fbId/actions/:action` route.
+- Inbound Telegram support (`famabot telegram-listen`, long-polling): slash
+  commands (`/reject <fbId|URL> <comment>`, …) apply directly; a free-text
+  reply to a candidate's own notification is classified into an action via the
+  same swappable AI-provider the evaluator uses. `/help` lists every command.
+- Every transition's comment is recorded (`phase_history.actor` distinguishes
+  user/evaluator/system entries) and fed back into the evaluator's system
+  prompt for that search's future candidates, so what you've actually said
+  when accepting/rejecting/holding shapes later verdicts.
+
 ## [0.3.0]
 
 ### Added

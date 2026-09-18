@@ -13,6 +13,7 @@ import {
   setCommute,
   trackedForRecheck,
 } from "../db/listings.js";
+import { isPaused } from "../db/searches.js";
 import { computeCommute, routingEnabled } from "../enrich/commute.js";
 import { log } from "../log.js";
 import { PACE, pause, shuffled } from "../pace.js";
@@ -123,7 +124,13 @@ export async function runPoll(
     inFlight.length = 0;
   };
 
-  const enabled = shuffled(searches.filter((s) => s.enabled));
+  const enabled = shuffled(searches.filter((s) => s.enabled && !isPaused(db, s.key)));
+  const skippedPaused = searches.filter((s) => s.enabled && isPaused(db, s.key));
+  if (skippedPaused.length) {
+    log.info(
+      `paused, skipping: ${skippedPaused.map((s) => s.key).join(", ")} (resume with \`famabot search resume <key>\`)`,
+    );
+  }
   log.info(
     `poll start — ${enabled.length} search(es): ${enabled.map((s) => s.key).join(", ")}`,
   );

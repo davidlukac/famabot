@@ -1,6 +1,11 @@
 import type { BrowserContext } from "playwright";
 import type { DB } from "../db/index.js";
-import { getByFbId, setEvaluation, updateEvaluation } from "../db/listings.js";
+import {
+  getByFbId,
+  recentUserFeedback,
+  setEvaluation,
+  updateEvaluation,
+} from "../db/listings.js";
 import type { Evaluation } from "../evaluate/evaluator.js";
 import { EVAL_MODEL, evaluateListing, toListingInput } from "../evaluate/evaluator.js";
 import type { EvalUsage } from "../evaluate/provider/index.js";
@@ -44,7 +49,14 @@ export async function evaluateStoreAndNotify(
   if (!row) return null;
 
   const tag = opts.reeval ? "re-eval" : "eval";
-  const res = await evaluateListing(toListingInput(row, { links: opts.links }), search);
+  const feedback = recentUserFeedback(db, search.key);
+  const res = await evaluateListing(
+    toListingInput(row, { links: opts.links }),
+    search,
+    {
+      feedback,
+    },
+  );
   if (!res) {
     log.warn(`[${tag}] ${fbId}: unparseable response, will retry next poll`);
     return null;

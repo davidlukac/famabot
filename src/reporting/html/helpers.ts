@@ -36,12 +36,12 @@ export const DEFAULT_SORT = 6;
 export const PHASE_ORDER = [
   "new",
   "candidate",
-  "contacted",
-  "visit_scheduled",
-  "visited",
   "accepted",
   "rejected",
-  "declined",
+  "acquisition_failed",
+  "acquisition_rejected",
+  "acquired_continue",
+  "acquired_stop",
 ];
 
 export function relAge(msVal: number): string {

@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS listings (
   eval_cost_usd       REAL,
   evaluated_at        TEXT,
   phase_updated_at    TEXT,
-  notes               TEXT
+  notes               TEXT,
+  telegram_message_id INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_listings_phase ON listings(phase);
@@ -46,10 +47,21 @@ CREATE TABLE IF NOT EXISTS phase_history (
   from_phase TEXT,
   to_phase   TEXT NOT NULL,
   note       TEXT,
+  actor      TEXT NOT NULL DEFAULT 'system',
   at         TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_history_fb ON phase_history(fb_id);
+
+-- Searches the user has paused (e.g. "acquired it, stop searching"). Checked
+-- by the poll loop alongside searches.yaml's \`enabled\` flag — no file edit
+-- needed to react to that outcome. searches.yaml stays the source of truth for
+-- which searches *exist*; this is only an on/off override at runtime.
+CREATE TABLE IF NOT EXISTS search_status (
+  search_key TEXT PRIMARY KEY,
+  paused_at  TEXT NOT NULL,
+  reason     TEXT
+);
 `;
 
 export type DB = Database.Database;
@@ -86,6 +98,7 @@ function migrate(db: DB): void {
     eval_tokens_out: "INTEGER",
     eval_tokens_cached: "INTEGER",
     eval_cost_usd: "REAL",
+    telegram_message_id: "INTEGER",
   };
   for (const [name, decl] of Object.entries(cols)) {
     if (have.has(name)) continue;
@@ -95,6 +108,115 @@ function migrate(db: DB): void {
       // Another process may have added it between the PRAGMA read and here.
       if (!/duplicate column name/i.test((err as Error).message)) throw err;
     }
+  }
+
+  const haveHistory = new Set(
+    (db.prepare("PRAGMA table_info(phase_history)").all() as { name: string }[]).map(
+      (c) => c.name,
+    ),
+  );
+  if (!haveHistory.has("actor")) {
+    try {
+      db.exec(
+        "ALTER TABLE phase_history ADD COLUMN actor TEXT NOT NULL DEFAULT 'system'",
+      );
+    } catch (err) {
+      if (!/duplicate column name/i.test((err as Error).message)) throw err;
+    }
+    // Backfill: the two system-generated notes get their real actor; every
+    // other pre-existing entry was a manual `move`/`setPhase` call, i.e. a user.
+    db.exec(`UPDATE phase_history SET actor = 'evaluator' WHERE note = 'evaluator'`);
+    db.exec(
+      `UPDATE phase_history SET actor = 'system' WHERE note = 're-eval after change'`,
+    );
+    db.exec(
+      `UPDATE phase_history SET actor = 'user' WHERE note NOT IN ('evaluator', 're-eval after change') OR note IS NULL`,
+    );
+  }
+
+  retireRentalPhases(db);
+}
+
+/**
+ * One-time migration off the old rental-specific phase set
+ * (contacted/visit_scheduled/visited/declined, and the old terminal meaning of
+ * `accepted`) onto the general acquisition workflow. Gated on `user_version`
+ * (SQLite's built-in schema-version counter) so it runs exactly once, even
+ * though the phase values it looks for could theoretically recur under new
+ * meanings later.
+ */
+function retireRentalPhases(db: DB): void {
+  if (Number(db.pragma("user_version", { simple: true })) >= 1) return;
+  const ts = nowIso();
+  // Snapshot rows in the OLD `accepted` (terminal, "fully acquired") phase
+  // before contacted/visit_scheduled/visited get remapped onto `accepted`
+  // below — otherwise those would be caught by this remap too and wrongly
+  // land on acquired_continue instead of staying "in progress".
+  const oldAccepted = new Set(
+    (
+      db.prepare("SELECT fb_id FROM listings WHERE phase = 'accepted'").all() as {
+        fb_id: string;
+      }[]
+    ).map((r) => r.fb_id),
+  );
+  const remap: [string, string][] = [
+    ["contacted", "accepted"],
+    ["visit_scheduled", "accepted"],
+    ["visited", "accepted"],
+    ["declined", "acquisition_rejected"],
+  ];
+  let migrated = 0;
+  const tx = db.transaction(() => {
+    for (const [from, to] of remap) {
+      const rows = db
+        .prepare("SELECT fb_id FROM listings WHERE phase = ?")
+        .all(from) as { fb_id: string }[];
+      if (rows.length === 0) continue;
+      db.prepare(
+        "UPDATE listings SET phase = ?, phase_updated_at = ? WHERE phase = ?",
+      ).run(to, ts, from);
+      const insertHistory = db.prepare(
+        `INSERT INTO phase_history (fb_id, from_phase, to_phase, note, actor, at)
+         VALUES (?, ?, ?, ?, 'system', ?)`,
+      );
+      for (const r of rows) {
+        insertHistory.run(
+          r.fb_id,
+          from,
+          to,
+          "migrated: rental-specific phase retired",
+          ts,
+        );
+      }
+      migrated += rows.length;
+    }
+    // Old terminal meaning of `accepted` ("fully acquired, done") is now
+    // ambiguous under the new one ("pursuing, not yet resolved"). Default to
+    // "acquired, continue searching" — the safer of the two guesses — and
+    // flag it below so the user can review and correct if they meant "stop".
+    if (oldAccepted.size > 0) {
+      const insertHistory = db.prepare(
+        `INSERT INTO phase_history (fb_id, from_phase, to_phase, note, actor, at)
+         VALUES (?, 'accepted', 'acquired_continue', ?, 'system', ?)`,
+      );
+      for (const fbId of oldAccepted) {
+        db.prepare(
+          "UPDATE listings SET phase = 'acquired_continue', phase_updated_at = ? WHERE fb_id = ?",
+        ).run(ts, fbId);
+        insertHistory.run(fbId, "migrated: rental-specific phase retired", ts);
+      }
+      migrated += oldAccepted.size;
+    }
+    db.pragma("user_version = 1");
+  });
+  tx();
+  if (migrated > 0) {
+    console.warn(
+      `[famabot] migrated ${migrated} listing(s) off the retired rental-specific phases. ` +
+        `Old "accepted" (meaning: fully acquired) rows were mapped to "acquired_continue" ` +
+        `by default — review with \`famabot list --phase acquired_continue\` and correct any ` +
+        `that should instead be "acquired_stop".`,
+    );
   }
 }
 

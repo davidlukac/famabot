@@ -18,7 +18,7 @@ export function registerReportingCommands(program: Command): void {
     .description(
       "Explore evaluated listings with filters + sorts; titles link to Facebook.",
     )
-    .option("-p, --phase <list>", "comma-separated phases (e.g. candidate,contacted)")
+    .option("-p, --phase <list>", "comma-separated phases (e.g. candidate,accepted)")
     .option("-s, --search <key>", "only this search key")
     .option("--verdict <v>", "candidate | reject")
     .option("--min-score <n>", "minimum fit score (0-1)", parseFloat)

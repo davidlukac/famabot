@@ -1,6 +1,10 @@
 import type { BrowserContext } from "playwright";
 import type { DB } from "../db/index.js";
-import { changedSinceNotified, markNotified } from "../db/listings.js";
+import {
+  changedSinceNotified,
+  markNotified,
+  setTelegramMessageId,
+} from "../db/listings.js";
 import type { ListingRow } from "../types.js";
 import { log } from "../log.js";
 import { candidateMsg, notifyCandidate, notifyEnabled } from "../notify/push.js";
@@ -32,16 +36,20 @@ export async function pushCandidates(
       );
       continue;
     }
-    const sent = await notifyCandidate(candidateMsg(c), ctx);
-    if (sent) markNotified(db, c.fb_id);
-    else
+    const result = await notifyCandidate(candidateMsg(c), ctx);
+    if (result.sent) {
+      markNotified(db, c.fb_id);
+      if (result.telegramMessageId != null) {
+        setTelegramMessageId(db, c.fb_id, result.telegramMessageId);
+      }
+    } else
       log.warn(
         `[notify] all backends failed for ${c.fb_id} — will retry on the next \`famabot notify\` or poll`,
       );
   }
 }
 
-/** Ping for tracked listings (candidate / contacted / …) that changed since last notified. */
+/** Ping for tracked listings (candidate / accepted) that changed since last notified. */
 export async function pushChanged(
   db: DB,
   ctx: BrowserContext | undefined,
@@ -49,9 +57,13 @@ export async function pushChanged(
   if (!notifyEnabled()) return;
   for (const c of changedSinceNotified(db)) {
     if (!c.notified_at) continue; // never notified at all -> handled elsewhere
-    const sent = await notifyCandidate(candidateMsg(c, "↻ updated: "), ctx);
-    if (sent) markNotified(db, c.fb_id);
-    else
+    const result = await notifyCandidate(candidateMsg(c, "↻ updated: "), ctx);
+    if (result.sent) {
+      markNotified(db, c.fb_id);
+      if (result.telegramMessageId != null) {
+        setTelegramMessageId(db, c.fb_id, result.telegramMessageId);
+      }
+    } else
       log.warn(
         `[notify] all backends failed for ${c.fb_id} (changed) — will retry next poll`,
       );

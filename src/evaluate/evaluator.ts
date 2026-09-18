@@ -124,10 +124,10 @@ export interface EvaluationResult {
 export async function evaluateListing(
   listing: ListingInput,
   search: Search,
-  opts: { attempts?: number } = {},
+  opts: { attempts?: number; feedback?: string[] } = {},
 ): Promise<EvaluationResult | null> {
   const attempts = opts.attempts ?? 2;
-  const systemPrompt = buildSystemPrompt(search);
+  const systemPrompt = buildSystemPrompt(search, opts.feedback);
   const basePrompt = `Listing under review:\n${JSON.stringify(listing, null, 2)}\n\n${OUTPUT_CONTRACT}`;
 
   const usages: (EvalUsage | null)[] = [];

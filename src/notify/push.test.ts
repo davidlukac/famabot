@@ -44,7 +44,7 @@ test("notifyCandidate: true when the only configured backend succeeds", async ()
     ok as typeof fetch,
     () => notifyCandidate(msg()),
   );
-  assert.equal(sent, true);
+  assert.equal(sent.sent, true);
 });
 
 test("notifyCandidate: false when the only configured backend fails", async () => {
@@ -53,7 +53,7 @@ test("notifyCandidate: false when the only configured backend fails", async () =
     fail as typeof fetch,
     () => notifyCandidate(msg()),
   );
-  assert.equal(sent, false);
+  assert.equal(sent.sent, false);
 });
 
 test("notifyCandidate: true if at least one of several backends succeeds", async () => {
@@ -72,7 +72,7 @@ test("notifyCandidate: true if at least one of several backends succeeds", async
     mixed,
     () => notifyCandidate(msg()),
   );
-  assert.equal(sent, true);
+  assert.equal(sent.sent, true);
   assert.equal(calls, 2);
 });
 
@@ -87,5 +87,5 @@ test("notifyCandidate: false when every backend fails, even with several configu
     fail as typeof fetch,
     () => notifyCandidate(msg()),
   );
-  assert.equal(sent, false);
+  assert.equal(sent.sent, false);
 });
