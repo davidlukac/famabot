@@ -191,6 +191,10 @@ async function sendCommand(m: CandidateMsg): Promise<void> {
  * Needs FAMABOT_MESSENGER_THREAD (e.g. https://www.facebook.com/messages/t/<id>).
  * Best-effort and fragile — Messenger's DOM is unstable.
  */
+// Drives a real Playwright BrowserContext (getByRole/locator/keyboard against
+// a live Messenger DOM) — not economical to unit test; see the same note on
+// scrape/marketplace.ts's scrapeSearch/scrapeDetail.
+/* node:coverage disable */
 async function sendMessenger(m: CandidateMsg, ctx?: BrowserContext): Promise<void> {
   const thread = process.env.FAMABOT_MESSENGER_THREAD;
   if (!thread) throw new Error("FAMABOT_MESSENGER_THREAD not set");
@@ -214,3 +218,4 @@ async function sendMessenger(m: CandidateMsg, ctx?: BrowserContext): Promise<voi
     await page.close().catch(() => {});
   }
 }
+/* node:coverage enable */

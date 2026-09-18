@@ -46,6 +46,21 @@ function parseSlashCommand(
   };
 }
 
+/**
+ * The inbound trust boundary: only the configured chat may drive the workflow
+ * — same as outbound's FAMABOT_TELEGRAM_CHAT_ID. Deliberately pulled out of
+ * `runTelegramBot`'s otherwise-untestable network loop and unit-tested on its
+ * own, per this repo's coverage policy (CLAUDE.md) — an authorization check
+ * is exactly the kind of logic that must not be hidden behind a
+ * `node:coverage disable` covering "just plumbing."
+ */
+export function isAuthorizedChat(
+  fromChat: number | undefined | null,
+  configuredChatId: string,
+): fromChat is number {
+  return fromChat != null && String(fromChat) === String(configuredChatId);
+}
+
 function describe(fbId: string, fromPhase: string, toPhase: string | null): string {
   return toPhase
     ? `${fbId}: ${fromPhase} → ${toPhase}`
@@ -128,7 +143,11 @@ export async function processUpdate(
   }
 }
 
-async function sendReply(token: string, chatId: number, text: string): Promise<void> {
+export async function sendReply(
+  token: string,
+  chatId: number,
+  text: string,
+): Promise<void> {
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
@@ -157,6 +176,11 @@ export async function runTelegramBot(
   const provider = getEvalProvider();
   const timeoutS = opts.pollTimeoutS ?? 30;
 
+  // The infinite long-poll loop below makes real network calls forever by
+  // design — not something a unit test can exercise directly. `processUpdate`
+  // (the actual per-message logic dispatched from inside it) is covered
+  // exhaustively above; this loop is just the network plumbing around it.
+  /* node:coverage disable */
   let offset = 0;
   log.info("telegram-bot: listening for replies (long-polling)…");
   for (;;) {
@@ -174,10 +198,12 @@ export async function runTelegramBot(
       for (const update of payload.result) {
         offset = update.update_id + 1;
         const fromChat = update.message?.chat.id;
-        if (fromChat == null || String(fromChat) !== String(chatId)) {
+        /* node:coverage enable */
+        if (!isAuthorizedChat(fromChat, chatId)) {
           log.warn(`telegram-bot: ignored message from unauthorized chat ${fromChat}`);
           continue;
         }
+        /* node:coverage disable */
         const text = update.message?.text ?? "";
         const replyTo = update.message?.reply_to_message?.message_id;
         log.info(
@@ -193,3 +219,4 @@ export async function runTelegramBot(
     }
   }
 }
+/* node:coverage enable */

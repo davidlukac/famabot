@@ -27,6 +27,12 @@ const NO_TOOLS =
 export class ClaudeCliProvider implements EvalProvider {
   constructor(readonly model: string) {}
 
+  // Shells out to the real `claude` binary — exercising the success path in
+  // a test would mean either a live (slow, billed, non-deterministic) AI call
+  // or reimplementing node:child_process's execFile as a mock. The request-
+  // building/error-mapping logic is the same shape already validated for the
+  // fetch-based providers (claude-api.ts et al.); this is just the transport.
+  /* node:coverage disable */
   async complete(prompt: string, opts: CompleteOptions = {}): Promise<CompleteResult> {
     const args = [
       "-p",
@@ -96,4 +102,5 @@ export class ClaudeCliProvider implements EvalProvider {
     }
     return { text: String(payload.result ?? ""), usage };
   }
+  /* node:coverage enable */
 }

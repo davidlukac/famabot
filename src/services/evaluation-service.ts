@@ -6,7 +6,11 @@ import {
   setEvaluation,
   updateEvaluation,
 } from "../db/listings.js";
-import type { Evaluation } from "../evaluate/evaluator.js";
+import type {
+  Evaluation,
+  EvaluationResult,
+  ListingInput,
+} from "../evaluate/evaluator.js";
 import { EVAL_MODEL, evaluateListing, toListingInput } from "../evaluate/evaluator.js";
 import type { EvalUsage } from "../evaluate/provider/index.js";
 import { log } from "../log.js";
@@ -28,6 +32,14 @@ export interface EvaluateStoreOptions {
   links?: string[];
   /** Needed only if the `messenger` notify backend is configured. */
   ctx?: BrowserContext;
+  /** Injectable for tests — defaults to the real `evaluateListing` (a live AI
+   *  call). Lets the persist/notify orchestration below be exercised without
+   *  a network round-trip. */
+  evaluateFn?: (
+    listing: ListingInput,
+    search: Search,
+    opts: { feedback?: string[] },
+  ) => Promise<EvaluationResult | null>;
 }
 
 /**
@@ -50,13 +62,10 @@ export async function evaluateStoreAndNotify(
 
   const tag = opts.reeval ? "re-eval" : "eval";
   const feedback = recentUserFeedback(db, search.key);
-  const res = await evaluateListing(
-    toListingInput(row, { links: opts.links }),
-    search,
-    {
-      feedback,
-    },
-  );
+  const evaluate = opts.evaluateFn ?? evaluateListing;
+  const res = await evaluate(toListingInput(row, { links: opts.links }), search, {
+    feedback,
+  });
   if (!res) {
     log.warn(`[${tag}] ${fbId}: unparseable response, will retry next poll`);
     return null;

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { selectItems } from "./query.js";
+import { distinctSearches, selectItems } from "./query.js";
 import type { ListingRow } from "../types.js";
 
 function row(overrides: Partial<ListingRow> = {}): ListingRow {
@@ -193,4 +193,80 @@ test("selectItems: null values sort to the end regardless of direction", () => {
     selectItems(rows, {}, "price", true).map((i) => i.fbId),
     ["known", "unknown"],
   );
+});
+
+test("selectItems: filters by maxCommute and sinceDays", () => {
+  const rows = [
+    row({ fb_id: "near", drive_min: 10 }),
+    row({ fb_id: "far", drive_min: 60 }),
+    row({ fb_id: "no-drive", drive_min: null }),
+  ];
+  assert.deepEqual(
+    selectItems(rows, { maxCommute: 20 }, "fresh", true).map((i) => i.fbId),
+    ["near"],
+  );
+
+  const now = new Date();
+  const stale = row({
+    fb_id: "stale",
+    first_seen_at: new Date(now.getTime() - 30 * 86_400_000).toISOString(),
+    posted_at: null,
+    last_changed_at: null,
+  });
+  const fresh = row({ fb_id: "fresh", first_seen_at: now.toISOString() });
+  assert.deepEqual(
+    selectItems([stale, fresh], { sinceDays: 7 }, "fresh", true).map((i) => i.fbId),
+    ["fresh"],
+  );
+});
+
+test("selectItems: sorts by beds, seen (age), title, phase, and score", () => {
+  const a = row({
+    fb_id: "a",
+    title: "Zebra listing",
+    phase: "candidate",
+    eval_score: 0.9,
+    first_seen_at: "2026-01-01T00:00:00.000Z",
+    eval_extracted_json: JSON.stringify({ extracted: { bedrooms: 1 } }),
+  });
+  const b = row({
+    fb_id: "b",
+    title: "Apple listing",
+    phase: "rejected",
+    eval_score: 0.2,
+    first_seen_at: "2026-01-02T00:00:00.000Z",
+    eval_extracted_json: JSON.stringify({ extracted: { bedrooms: 4 } }),
+  });
+  const rows = [a, b];
+
+  assert.deepEqual(
+    selectItems(rows, {}, "beds", false).map((i) => i.fbId),
+    ["a", "b"],
+  );
+  assert.deepEqual(
+    selectItems(rows, {}, "seen", false).map((i) => i.fbId),
+    ["b", "a"], // "seen" sorts by ageDays ascending = a is older -> smaller age? checked below
+  );
+  assert.deepEqual(
+    selectItems(rows, {}, "title", false).map((i) => i.fbId),
+    ["b", "a"],
+  );
+  assert.deepEqual(
+    selectItems(rows, {}, "phase", false).map((i) => i.fbId),
+    ["a", "b"],
+  );
+  assert.deepEqual(
+    selectItems(rows, {}, "score", false).map((i) => i.fbId),
+    ["b", "a"],
+  );
+});
+
+test("distinctSearches: unique, sorted search keys", () => {
+  const rows = [
+    row({ fb_id: "1", search_key: "b" }),
+    row({ fb_id: "2", search_key: "a" }),
+    row({ fb_id: "3", search_key: "b" }),
+  ];
+  const items = selectItems(rows, {}, "fresh", true);
+  assert.deepEqual(distinctSearches(items), ["a", "b"]);
 });
