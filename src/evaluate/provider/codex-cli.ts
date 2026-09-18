@@ -41,7 +41,7 @@ interface CodexEvent {
 }
 
 /** Pull the first error-ish event out of a `codex exec --json` stream, if any. */
-function findCodexError(stdout: string): string | undefined {
+export function findCodexError(stdout: string): string | undefined {
   for (const line of stdout.split("\n")) {
     const t = line.trim();
     if (!t.startsWith("{")) continue;
@@ -72,6 +72,11 @@ function findCodexError(stdout: string): string | undefined {
 export class CodexCliProvider implements EvalProvider {
   constructor(readonly model: string) {}
 
+  // Shells out to the real `codex` binary — same reasoning as
+  // claude-cli.ts's ClaudeCliProvider.complete for excluding this from
+  // coverage. `findCodexError` (the interesting parsing logic) is exported
+  // and unit-tested on its own above.
+  /* node:coverage disable */
   async complete(prompt: string, opts: CompleteOptions = {}): Promise<CompleteResult> {
     const fullPrompt = opts.systemPrompt
       ? `${opts.systemPrompt}\n\n---\n\n${prompt}`
@@ -157,4 +162,5 @@ export class CodexCliProvider implements EvalProvider {
     }
     return { text, usage };
   }
+  /* node:coverage enable */
 }

@@ -97,6 +97,14 @@ export function looksRedirected(requested: string, landed: string): boolean {
 const jitter = (minMs: number, maxMs: number) =>
   new Promise((r) => setTimeout(r, minMs + Math.random() * (maxMs - minMs)));
 
+// scrapeSearch/domFallback/scrapeDetail all drive a real Playwright `Page` —
+// goto/mouse/locator/$$eval against a live or headless browser. Meaningfully
+// unit testing them would mean reimplementing most of Playwright's Page
+// interface as a mock, which tests the mock more than the code; the pure
+// logic that surrounds them (buildSearchUrl, looksRedirected, citySlug) is
+// already covered above and is where the real bugs tend to live.
+/* node:coverage disable */
+
 /**
  * Scrape one search results page. Primary strategy: capture GraphQL responses
  * as they stream in. Fallback: parse anchor tags from the DOM.
@@ -294,5 +302,6 @@ export async function scrapeDetail(page: Page, fbId: string): Promise<DetailResu
     return { text: null, unavailable: false, links: [] };
   }
 }
+/* node:coverage enable */
 
 export { jitter };

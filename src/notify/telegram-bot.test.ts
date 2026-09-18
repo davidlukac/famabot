@@ -7,7 +7,13 @@ import {
   setPhase,
   setTelegramMessageId,
 } from "../db/listings.js";
-import { processUpdate, type TelegramUpdate } from "./telegram-bot.js";
+import {
+  isAuthorizedChat,
+  processUpdate,
+  runTelegramBot,
+  sendReply,
+  type TelegramUpdate,
+} from "./telegram-bot.js";
 import type { EvalProvider } from "../evaluate/provider/index.js";
 import type { RawListing } from "../types.js";
 
@@ -163,4 +169,81 @@ test("processUpdate: the no-fbId-resolved fallback also lists every available co
   const res = await processUpdate(db, update("hello bot"), provider);
   assert.match(res.reply, /\/reject/);
   assert.match(res.reply, /\/acquired-stop/);
+});
+
+async function withFetch<T>(f: typeof fetch, fn: () => Promise<T>): Promise<T> {
+  const prev = globalThis.fetch;
+  globalThis.fetch = f;
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = prev;
+  }
+}
+
+test("sendReply: posts to Telegram's sendMessage and never throws on success", async () => {
+  let body: unknown;
+  const fetchImpl = (async (_url, init) => {
+    body = JSON.parse((init as RequestInit).body as string);
+    return new Response("ok", { status: 200 });
+  }) as typeof fetch;
+  await withFetch(fetchImpl, () => sendReply("tok", 42, "hi there"));
+  assert.deepEqual(body, { chat_id: 42, text: "hi there" });
+});
+
+test("sendReply: an HTTP error is swallowed, not thrown", async () => {
+  await withFetch(
+    (async () => new Response("nope", { status: 500 })) as typeof fetch,
+    async () => {
+      await assert.doesNotReject(() => sendReply("tok", 42, "hi"));
+    },
+  );
+});
+
+test("sendReply: a network failure is swallowed, not thrown", async () => {
+  await withFetch(
+    (async () => {
+      throw new Error("ECONNRESET");
+    }) as typeof fetch,
+    async () => {
+      await assert.doesNotReject(() => sendReply("tok", 42, "hi"));
+    },
+  );
+});
+
+test("runTelegramBot: rejects immediately if FAMABOT_TELEGRAM_BOT_TOKEN is unset", async () => {
+  const prevEnv = { ...process.env };
+  delete process.env.FAMABOT_TELEGRAM_BOT_TOKEN;
+  delete process.env.FAMABOT_TELEGRAM_CHAT_ID;
+  try {
+    await assert.rejects(() => runTelegramBot(db), /FAMABOT_TELEGRAM_BOT_TOKEN/);
+  } finally {
+    process.env = prevEnv;
+  }
+});
+
+test("runTelegramBot: rejects immediately if FAMABOT_TELEGRAM_CHAT_ID is unset", async () => {
+  const prevEnv = { ...process.env };
+  process.env.FAMABOT_TELEGRAM_BOT_TOKEN = "tok";
+  delete process.env.FAMABOT_TELEGRAM_CHAT_ID;
+  try {
+    await assert.rejects(() => runTelegramBot(db), /FAMABOT_TELEGRAM_CHAT_ID/);
+  } finally {
+    process.env = prevEnv;
+  }
+});
+
+test("isAuthorizedChat: true only when the numeric chat id string-matches the configured one", () => {
+  assert.equal(isAuthorizedChat(12345, "12345"), true);
+  assert.equal(isAuthorizedChat(12345, "99999"), false);
+});
+
+test("isAuthorizedChat: false for a missing chat id (undefined or null)", () => {
+  assert.equal(isAuthorizedChat(undefined, "12345"), false);
+  assert.equal(isAuthorizedChat(null, "12345"), false);
+});
+
+test("isAuthorizedChat: a negative group/channel chat id matches when configured with the same value", () => {
+  assert.equal(isAuthorizedChat(-100123456789, "-100123456789"), true);
+  assert.equal(isAuthorizedChat(-100123456789, "100123456789"), false);
 });
